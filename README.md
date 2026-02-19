@@ -56,23 +56,31 @@ curl -X POST localhost:8228/notify \
   -H "Content-Type: application/json" \
   -d '{"title": "ding ding!", "body": "Task finished", "agent": "claude"}'
 
+# Include PID for focus detection (server checks if that terminal is focused)
+curl -X POST localhost:8228/notify \
+  -d '{"body": "Done", "agent": "claude", "pid": '$$'}'
+
 # Quick GET request
 curl "localhost:8228/notify?message=done&agent=claude"
 ```
 
-### Agent Integration Examples
+### Agent Integration
 
-**Claude Code hook** (`.claude/hooks.json`):
+#### Claude Code
+
+Add to `.claude/settings.json` (project) or `~/.claude/settings.json` (global):
+
+**Option A: CLI with async hook (simplest)**
 ```json
 {
   "hooks": {
-    "PostToolUse": [
+    "Stop": [
       {
-        "matcher": "Stop",
         "hooks": [
           {
             "type": "command",
-            "command": "ding-ding notify -a claude -m 'Claude has finished the task'"
+            "command": "ding-ding notify -a claude -m 'Task finished'",
+            "async": true
           }
         ]
       }
@@ -81,7 +89,63 @@ curl "localhost:8228/notify?message=done&agent=claude"
 }
 ```
 
-**Generic shell hook:**
+`"async": true` is important — without it, the hook blocks Claude until ding-ding finishes
+sending any remote notifications (ntfy, Discord, etc). With async, Claude returns immediately.
+
+**Option B: Server mode (better for multiple agents)**
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s localhost:8228/notify -d '{\"agent\":\"claude\",\"body\":\"Task finished\",\"pid\":'$$'}'",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The `$$` sends the shell's PID so the server can check if the agent's terminal is focused.
+Start the server separately with `ding-ding serve`.
+
+#### OpenCode
+
+OpenCode uses TypeScript plugins. Save as `.opencode/plugins/ding-ding.ts`:
+
+**Option A: CLI**
+```typescript
+import type { Plugin } from "@opencode-ai/plugin"
+
+export const DingDing: Plugin = async ({ $ }) => ({
+  event: async ({ event }) => {
+    if (event.type === "session.idle") {
+      await $`ding-ding notify -a opencode -m "Task finished"`
+    }
+  },
+})
+```
+
+**Option B: Server mode**
+```typescript
+import type { Plugin } from "@opencode-ai/plugin"
+
+export const DingDing: Plugin = async ({ $ }) => ({
+  event: async ({ event }) => {
+    if (event.type === "session.idle") {
+      await $`curl -s localhost:8228/notify -d '{"agent":"opencode","body":"Task finished","pid":'$$'}'`
+    }
+  },
+})
+```
+
+#### Generic shell hook
+
 ```bash
 # After any long-running agent command
 my-agent run --task "refactor" && ding-ding notify -a my-agent -m "Refactor complete"
