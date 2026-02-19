@@ -84,10 +84,25 @@ Add to `.claude/settings.json` (project) or `~/.claude/settings.json` (global):
           }
         ]
       }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ding-ding notify -a claude -m 'Needs your attention'",
+            "async": true
+          }
+        ]
+      }
     ]
   }
 }
 ```
+
+`Stop` fires when Claude finishes a response. `Notification` fires when Claude is blocked
+waiting for you (permission prompt, idle, etc). Together they cover both "done" and
+"waiting for you" — the two times you actually want to be pinged.
 
 `"async": true` is important — without it, the hook blocks Claude until ding-ding finishes
 sending any remote notifications (ntfy, Discord, etc). With async, Claude returns immediately.
@@ -102,6 +117,17 @@ sending any remote notifications (ntfy, Discord, etc). With async, Claude return
           {
             "type": "command",
             "command": "curl -s localhost:8228/notify -d '{\"agent\":\"claude\",\"body\":\"Task finished\",\"pid\":'$$'}'",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s localhost:8228/notify -d '{\"agent\":\"claude\",\"body\":\"Needs your attention\",\"pid\":'$$'}'",
             "async": true
           }
         ]
