@@ -28,7 +28,7 @@ func Start(cfg config.Config) error {
 
 		log.Printf("received notification: title=%q body=%q agent=%q", msg.Title, msg.Body, msg.Agent)
 
-		if err := notifier.Notify(cfg, msg); err != nil {
+		if err := notifier.NotifyRemote(cfg, msg); err != nil {
 			log.Printf("notification error: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -53,7 +53,7 @@ func Start(cfg config.Config) error {
 
 		log.Printf("received notification (GET): title=%q body=%q agent=%q", msg.Title, msg.Body, msg.Agent)
 
-		if err := notifier.Notify(cfg, msg); err != nil {
+		if err := notifier.NotifyRemote(cfg, msg); err != nil {
 			log.Printf("notification error: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -17,11 +17,11 @@ type Message struct {
 	Agent string `json:"agent,omitempty"` // e.g. "claude", "opencode"
 }
 
-// Notify uses 3-tier logic to decide what to send:
+// Notify handles CLI invocations with 3-tier logic:
 //
-//	Active + terminal focused  → skip system notification, skip push
-//	Active + terminal unfocused → send system notification, skip push
-//	Idle                        → send system notification + push
+//	Active + terminal focused  → skip (user sees agent output directly)
+//	Active + terminal unfocused → system notification only
+//	Idle                        → system notification + push
 func Notify(cfg config.Config, msg Message) error {
 	if msg.Title == "" {
 		msg.Title = "ding ding!"
@@ -50,6 +50,32 @@ func Notify(cfg config.Config, msg Message) error {
 	}
 
 	// Tier 3: user is idle — send push notifications
+	log.Printf("user idle for %s (threshold %s) — sending push notifications", idleTime, threshold)
+	return pushAll(cfg, msg)
+}
+
+// NotifyRemote handles HTTP server invocations. Focus detection is skipped
+// because the server process has no relationship to the agent's terminal.
+// Always sends a system notification; pushes only when idle.
+func NotifyRemote(cfg config.Config, msg Message) error {
+	if msg.Title == "" {
+		msg.Title = "ding ding!"
+	}
+
+	idleTime := idle.Duration()
+	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
+	userIdle := threshold > 0 && idleTime >= threshold
+
+	// Always send system notification for remote requests
+	if err := systemNotify(msg.Title, msg.Body); err != nil {
+		log.Printf("system notification failed: %v", err)
+	}
+
+	if !userIdle {
+		log.Printf("user active (idle %s, threshold %s) — skipping push", idleTime, threshold)
+		return nil
+	}
+
 	log.Printf("user idle for %s (threshold %s) — sending push notifications", idleTime, threshold)
 	return pushAll(cfg, msg)
 }
