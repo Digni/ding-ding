@@ -1,0 +1,34 @@
+# ding-ding configuration
+# Copy to ~/.config/ding-ding/config.yaml
+
+# ntfy push notifications (https://ntfy.sh)
+ntfy:
+  enabled: false
+  server: "https://ntfy.sh"       # your self-hosted ntfy server
+  topic: "ding-ding"
+  token: ""                        # auth token (optional)
+  priority: "high"                 # min, low, default, high, max
+
+# Discord webhook notifications
+discord:
+  enabled: false
+  webhook_url: ""                  # Discord channel webhook URL
+
+# Generic webhook (any HTTP endpoint)
+webhook:
+  enabled: false
+  url: ""
+  method: "POST"                   # HTTP method
+
+# Idle detection — push notifications are only sent when the user
+# has been idle for longer than this threshold
+idle:
+  threshold_seconds: 300           # 5 minutes
+
+# HTTP server settings (for `ding-ding serve`)
+server:
+  address: ":8228"
+
+# Sound settings
+sound:
+  enabled: true
