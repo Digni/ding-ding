@@ -9,12 +9,13 @@ import (
 )
 
 type Config struct {
-	Ntfy    NtfyConfig    `yaml:"ntfy"`
-	Discord DiscordConfig `yaml:"discord"`
-	Webhook WebhookConfig `yaml:"webhook"`
-	Idle    IdleConfig    `yaml:"idle"`
-	Server  ServerConfig  `yaml:"server"`
-	Sound   SoundConfig   `yaml:"sound"`
+	Ntfy         NtfyConfig         `yaml:"ntfy"`
+	Discord      DiscordConfig      `yaml:"discord"`
+	Webhook      WebhookConfig      `yaml:"webhook"`
+	Idle         IdleConfig         `yaml:"idle"`
+	Notification NotificationConfig `yaml:"notification"`
+	Server       ServerConfig       `yaml:"server"`
+	Sound        SoundConfig        `yaml:"sound"`
 }
 
 type NtfyConfig struct {
@@ -38,6 +39,12 @@ type WebhookConfig struct {
 
 type IdleConfig struct {
 	ThresholdSeconds int `yaml:"threshold_seconds"`
+}
+
+type NotificationConfig struct {
+	// SuppressWhenFocused skips the system notification when the terminal
+	// that spawned ding-ding is the focused window (user is watching).
+	SuppressWhenFocused bool `yaml:"suppress_when_focused"`
 }
 
 type ServerConfig struct {
@@ -65,6 +72,9 @@ func DefaultConfig() Config {
 		},
 		Idle: IdleConfig{
 			ThresholdSeconds: 300,
+		},
+		Notification: NotificationConfig{
+			SuppressWhenFocused: true,
 		},
 		Server: ServerConfig{
 			Address: ":8228",

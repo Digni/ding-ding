@@ -25,6 +25,10 @@ webhook:
 idle:
   threshold_seconds: 300           # 5 minutes
 
+# Notification behavior
+notification:
+  suppress_when_focused: true      # skip system notification when agent terminal is focused
+
 # HTTP server settings (for `ding-ding serve`)
 server:
   address: ":8228"

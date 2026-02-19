@@ -4,8 +4,11 @@ Notification tool for AI agent completion events. Get notified when Claude, open
 
 **How it works:**
 1. Agent finishes → triggers ding-ding (CLI or HTTP)
-2. System notification is shown immediately
-3. If you've been away (idle > threshold) → push notification via ntfy, Discord, or webhook
+2. Checks if you're watching the agent terminal (window focus detection)
+3. Smart 3-tier notification based on your attention state:
+   - **Focused on agent terminal** → nothing (you already see the output)
+   - **Active but on a different window** → system notification
+   - **Idle (away from computer)** → system notification + push via ntfy/Discord/webhook
 
 ## Install
 
@@ -121,6 +124,10 @@ webhook:
 idle:
   threshold_seconds: 300
 
+# Skip system notification when the agent terminal is focused
+notification:
+  suppress_when_focused: true
+
 # HTTP server
 server:
   address: ":8228"
@@ -132,20 +139,17 @@ server:
 Agent completes task
        │
        ▼
-  System notification (always)
+  Check focus + idle
        │
-       ▼
-  Check idle time
-       │
-  ┌────┴────┐
-  │ Active  │ Idle
-  │         │
-  │  done   ▼
-  │    Push via:
-  │    ├─ ntfy
-  │    ├─ Discord
-  │    └─ Webhook
-  └─────────┘
+  ┌────┼──────────────┐
+  │    │               │
+Focused  Unfocused    Idle
+  │    │               │
+ quiet  system        system notification
+        notification  + push via:
+        only            ├─ ntfy
+                        ├─ Discord
+                        └─ Webhook
 ```
 
 ## Platforms
@@ -154,6 +158,7 @@ Agent completes task
 |---------|-------|-------|---------|
 | System notifications | `notify-send` | `osascript` | PowerShell toast |
 | Idle detection | `xprintidle` / DBus | `ioreg` | `GetLastInputInfo` |
+| Focus detection | `xdotool` / `kdotool` | `osascript` | `GetForegroundWindow` |
 | ntfy / Discord / Webhook | ✓ | ✓ | ✓ |
 
 ## License
