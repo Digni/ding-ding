@@ -10,19 +10,15 @@ import (
 	"strings"
 )
 
-func terminalFocused() bool {
-	// Get the PID of the active window via xdotool (X11)
+func processInFocusedTerminal(pid int) bool {
 	focusedPID, ok := focusedWindowPID()
 	if !ok {
 		return false
 	}
 
-	// Check if the focused window's PID is an ancestor of our process.
-	// When an agent calls `ding-ding notify`, the chain is:
-	//   terminal → shell → agent → ding-ding
-	// If the terminal window's PID is anywhere in that ancestry, user is
-	// looking at the agent.
-	return isAncestor(focusedPID, os.Getpid())
+	// Check if the focused window's PID is an ancestor of the given process.
+	// Chain: terminal → shell → agent → ding-ding (or agent → curl for server)
+	return isAncestor(focusedPID, pid)
 }
 
 func focusedWindowPID() (int, bool) {

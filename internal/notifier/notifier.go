@@ -15,6 +15,7 @@ type Message struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
 	Agent string `json:"agent,omitempty"` // e.g. "claude", "opencode"
+	PID   int    `json:"pid,omitempty"`   // caller's PID for focus detection in server mode
 }
 
 // Notify handles CLI invocations with 3-tier logic:
@@ -54,9 +55,10 @@ func Notify(cfg config.Config, msg Message) error {
 	return pushAll(cfg, msg)
 }
 
-// NotifyRemote handles HTTP server invocations. Focus detection is skipped
-// because the server process has no relationship to the agent's terminal.
-// Always sends a system notification; pushes only when idle.
+// NotifyRemote handles HTTP server invocations. If the caller provides a PID,
+// focus detection uses that PID's process tree to check if the agent's
+// terminal is focused. Without a PID, focus detection is skipped and a
+// system notification is always sent.
 func NotifyRemote(cfg config.Config, msg Message) error {
 	if msg.Title == "" {
 		msg.Title = "ding ding!"
@@ -66,7 +68,17 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
 	userIdle := threshold > 0 && idleTime >= threshold
 
-	// Always send system notification for remote requests
+	// If the caller sent a PID, we can check focus for their terminal
+	focused := false
+	if msg.PID > 0 && cfg.Notification.SuppressWhenFocused {
+		focused = focus.ProcessInFocusedTerminal(msg.PID)
+	}
+
+	if !userIdle && focused {
+		log.Printf("agent terminal focused (pid %d), user active (idle %s) — suppressing notification", msg.PID, idleTime)
+		return nil
+	}
+
 	if err := systemNotify(msg.Title, msg.Body); err != nil {
 		log.Printf("system notification failed: %v", err)
 	}

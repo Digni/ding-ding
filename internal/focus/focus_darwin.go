@@ -3,13 +3,12 @@
 package focus
 
 import (
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 )
 
-func terminalFocused() bool {
+func processInFocusedTerminal(pid int) bool {
 	// Get PID of the frontmost application
 	out, err := exec.Command("osascript", "-e",
 		`tell application "System Events" to get unix id of first process whose frontmost is true`,
@@ -23,7 +22,7 @@ func terminalFocused() bool {
 		return false
 	}
 
-	return isAncestor(focusedPID, os.Getpid())
+	return isAncestor(focusedPID, pid)
 }
 
 // isAncestor checks whether ancestorPID is in the process tree above pid.

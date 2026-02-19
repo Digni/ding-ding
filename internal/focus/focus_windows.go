@@ -3,24 +3,23 @@
 package focus
 
 import (
-	"os"
 	"syscall"
 	"unsafe"
 )
 
 var (
-	user32               = syscall.NewLazyDLL("user32.dll")
-	kernel32             = syscall.NewLazyDLL("kernel32.dll")
-	getForegroundWindow  = user32.NewProc("GetForegroundWindow")
-	getWindowThreadPID   = user32.NewProc("GetWindowThreadProcessId")
-	openProcess          = kernel32.NewProc("OpenProcess")
-	ntQueryInfoProcess   = syscall.NewLazyDLL("ntdll.dll").NewProc("NtQueryInformationProcess")
-	closeHandle          = kernel32.NewProc("CloseHandle")
+	user32              = syscall.NewLazyDLL("user32.dll")
+	kernel32            = syscall.NewLazyDLL("kernel32.dll")
+	getForegroundWindow = user32.NewProc("GetForegroundWindow")
+	getWindowThreadPID  = user32.NewProc("GetWindowThreadProcessId")
+	openProcess         = kernel32.NewProc("OpenProcess")
+	ntQueryInfoProcess  = syscall.NewLazyDLL("ntdll.dll").NewProc("NtQueryInformationProcess")
+	closeHandle         = kernel32.NewProc("CloseHandle")
 )
 
 const processQueryInfo = 0x0400
 
-func terminalFocused() bool {
+func processInFocusedTerminal(pid int) bool {
 	hwnd, _, _ := getForegroundWindow.Call()
 	if hwnd == 0 {
 		return false
@@ -32,7 +31,7 @@ func terminalFocused() bool {
 		return false
 	}
 
-	return isAncestor(int(focusedPID), os.Getpid())
+	return isAncestor(int(focusedPID), pid)
 }
 
 func isAncestor(ancestorPID, pid int) bool {
