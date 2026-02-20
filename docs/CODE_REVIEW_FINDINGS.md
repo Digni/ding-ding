@@ -139,7 +139,7 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### I3: Extract shared 3-tier dispatch logic
 - **File:** `internal/notifier/notifier.go`
 - **Effort:** medium
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Fix:** `Notify` and `NotifyRemote` repeat the 3-tier pattern. Extract `dispatch(cfg, msg, focused)` helper.
 
 ### I4: `config.Init()` prints to stdout

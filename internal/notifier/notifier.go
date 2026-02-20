@@ -66,12 +66,41 @@ func Notify(cfg config.Config, msg Message) error {
 	}
 
 	userIdle, idleTime := resolveIdleState(cfg)
-	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
 	focused := cfg.Notification.SuppressWhenFocused && TerminalFocusedFunc()
+
+	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, func() {
+		log.Printf("terminal focused, user active (idle %s) — suppressing notification", idleTime)
+	})
+}
+
+// NotifyRemote handles HTTP server invocations. If the caller provides a PID,
+// focus detection uses that PID's process tree to check if the agent's
+// terminal is focused. Without a PID, focus detection is skipped and a
+// system notification is always sent.
+func NotifyRemote(cfg config.Config, msg Message) error {
+	if msg.Title == "" {
+		msg.Title = "ding ding!"
+	}
+
+	userIdle, idleTime := resolveIdleState(cfg)
+
+	// If the caller sent a PID, we can check focus for their terminal
+	focused := false
+	if msg.PID > 0 && cfg.Notification.SuppressWhenFocused {
+		focused = ProcessInFocusedTerminalFunc(msg.PID)
+	}
+
+	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, func() {
+		log.Printf("agent terminal focused (pid %d), user active (idle %s) — suppressing notification", msg.PID, idleTime)
+	})
+}
+
+func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTime time.Duration, focused bool, tier1Log func()) error {
+	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
 
 	// Tier 1: user is active and looking at the agent terminal — do nothing
 	if !userIdle && focused {
-		log.Printf("terminal focused, user active (idle %s) — suppressing notification", idleTime)
+		tier1Log()
 		return nil
 	}
 
@@ -87,42 +116,6 @@ func Notify(cfg config.Config, msg Message) error {
 	}
 
 	// Tier 3: user is idle — send push notifications
-	log.Printf("user idle for %s (threshold %s) — sending push notifications", idleTime, threshold)
-	return pushAll(cfg, msg)
-}
-
-// NotifyRemote handles HTTP server invocations. If the caller provides a PID,
-// focus detection uses that PID's process tree to check if the agent's
-// terminal is focused. Without a PID, focus detection is skipped and a
-// system notification is always sent.
-func NotifyRemote(cfg config.Config, msg Message) error {
-	if msg.Title == "" {
-		msg.Title = "ding ding!"
-	}
-
-	userIdle, idleTime := resolveIdleState(cfg)
-	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
-
-	// If the caller sent a PID, we can check focus for their terminal
-	focused := false
-	if msg.PID > 0 && cfg.Notification.SuppressWhenFocused {
-		focused = ProcessInFocusedTerminalFunc(msg.PID)
-	}
-
-	if !userIdle && focused {
-		log.Printf("agent terminal focused (pid %d), user active (idle %s) — suppressing notification", msg.PID, idleTime)
-		return nil
-	}
-
-	if err := SystemNotifyFunc(msg.Title, msg.Body); err != nil {
-		log.Printf("system notification failed: %v", err)
-	}
-
-	if !userIdle {
-		log.Printf("user active (idle %s, threshold %s) — skipping push", idleTime, threshold)
-		return nil
-	}
-
 	log.Printf("user idle for %s (threshold %s) — sending push notifications", idleTime, threshold)
 	return pushAll(cfg, msg)
 }

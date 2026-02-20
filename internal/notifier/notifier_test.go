@@ -336,6 +336,55 @@ func TestNotifyRemote_SuppressFocusDisabled(t *testing.T) {
 	}
 }
 
+func TestNotifyRemote_DefaultTitle(t *testing.T) {
+	state := setupStubs(t, 10*time.Second, nil, false)
+	cfg := testConfig()
+
+	err := NotifyRemote(cfg, Message{Title: "", Body: "body", PID: 1234})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if state.systemNotifyTitle != "ding ding!" {
+		t.Errorf("expected default title 'ding ding!', got %q", state.systemNotifyTitle)
+	}
+}
+
+func TestNotifyRemote_NoPID_DoesNotCallProcessFocusCheck(t *testing.T) {
+	state := setupStubs(t, 10*time.Second, nil, true)
+	cfg := testConfig()
+
+	tests := []struct {
+		name string
+		pid  int
+	}{
+		{name: "zero pid", pid: 0},
+		{name: "negative pid", pid: -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processFocusCalled := false
+			ProcessInFocusedTerminalFunc = func(pid int) bool {
+				processFocusCalled = true
+				return true
+			}
+
+			state.systemNotifyCalled = false
+
+			err := NotifyRemote(cfg, Message{Title: "test", Body: "body", PID: tt.pid})
+			if err != nil {
+				t.Fatalf("expected nil error, got %v", err)
+			}
+			if processFocusCalled {
+				t.Fatalf("expected ProcessInFocusedTerminalFunc not called for PID=%d", tt.pid)
+			}
+			if !state.systemNotifyCalled {
+				t.Fatalf("expected systemNotify called for PID=%d", tt.pid)
+			}
+		})
+	}
+}
+
 // ─── Push ────────────────────────────────────────────────────────────────────
 
 func TestPush_BypassesIdleFocus(t *testing.T) {
