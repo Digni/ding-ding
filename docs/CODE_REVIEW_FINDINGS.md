@@ -81,9 +81,9 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### W4: GNOME Wayland focus detection fails
 - **File:** `internal/focus/focus_linux.go`
 - **Effort:** hard
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** Neither `xdotool` nor `kdotool` works on GNOME Wayland (most common modern Linux desktop). Focus detection silently returns false.
-- **Fix:** Research Wayland-native focus detection (e.g., `wlrctl`, compositor-specific DBus APIs). May need a fallback strategy.
+- **Fix:** Added GNOME Wayland fallback in Linux focus detection via `gdbus` + `org.gnome.Shell.Eval` to read focused window PID when `xdotool`/`kdotool` are unavailable.
 
 ### W5: `threshold_seconds: 0` silently disables idle detection
 - **File:** `internal/notifier/notifier.go:33`

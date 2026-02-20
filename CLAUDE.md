@@ -69,3 +69,7 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`
 Scope examples: `notifier`, `focus`, `idle`, `config`, `cmd`, `server`.
 
 Do NOT add `Co-Authored-By` trailers to commits.
+
+## Implementation Workflow
+
+Use subagents (Task tool) for implementation work. Distribute tasks to subagents rather than implementing everything in the main conversation. Spawn implementation subagents with `model: "sonnet"` to keep costs low and latency fast.
