@@ -236,7 +236,27 @@ notification:
 # HTTP server
 server:
   address: "127.0.0.1:8228"
+
+# Persistent structured logging
+logging:
+  enabled: false
+  level: "info"     # error, warn, info, debug
+  dir: "logs"
+  max_size_mb: 20
+  max_backups: 7
+  compress: false
 ```
+
+## Logging
+
+Enable persistent logs by setting `logging.enabled: true` in your config.
+
+- **Format:** JSON lines with UTC timestamps and correlated lifecycle fields (`request_id`, `operation_id`, `status`, `duration_ms`).
+- **Levels:** `error`, `warn`, `info`, `debug` via `logging.level` (applies on next process start).
+- **Redaction:** Known sensitive keys are masked as `[REDACTED]`; request payloads are logged as metadata only (shape/size/field names), not raw body/query content.
+- **Retention controls:** `logging.max_size_mb` controls rotation threshold, `logging.max_backups` bounds retained files, and `logging.compress` toggles compression of rotated files.
+
+By default, logs are written to role-specific files in `logging.dir` (`cli.log` for CLI runs and `server.log` for HTTP server runs).
 
 ## Notification Flow
 

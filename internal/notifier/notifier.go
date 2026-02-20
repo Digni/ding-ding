@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,10 +29,12 @@ var SystemNotifyFunc = systemNotify
 
 // Message represents a notification to be sent.
 type Message struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
-	Agent string `json:"agent,omitempty"` // e.g. "claude", "opencode"
-	PID   int    `json:"pid,omitempty"`   // caller's PID for focus detection in server mode
+	Title       string `json:"title"`
+	Body        string `json:"body"`
+	Agent       string `json:"agent,omitempty"`        // e.g. "claude", "opencode"
+	PID         int    `json:"pid,omitempty"`          // caller's PID for focus detection in server mode
+	RequestID   string `json:"request_id,omitempty"`   // server correlation id for request-scoped tracing
+	OperationID string `json:"operation_id,omitempty"` // lifecycle correlation id shared across components
 }
 
 // NotifyOptions controls forced notification behavior.
@@ -114,8 +117,15 @@ func NotifyWithOptions(cfg config.Config, msg Message, opts NotifyOptions) error
 // system notification is always sent.
 func NotifyRemote(cfg config.Config, msg Message) error {
 	start := time.Now()
-	operationID := logging.NewOperationID()
-	logger := slog.With("operation_id", operationID, "entrypoint", "http", "agent", msg.Agent, "request_pid", msg.PID)
+	requestID := logging.EnsureRequestID(msg.RequestID)
+	operationID := strings.TrimSpace(msg.OperationID)
+	if operationID == "" {
+		operationID = logging.NewOperationID()
+	}
+	logger := slog.With("operation_id", operationID, "request_id", requestID, "entrypoint", "http", "agent", msg.Agent, "request_pid", msg.PID)
+
+	msg.RequestID = requestID
+	msg.OperationID = operationID
 
 	if msg.Title == "" {
 		msg.Title = "ding ding!"
@@ -213,6 +223,8 @@ func messageMetadata(msg Message) []any {
 		"title_bytes", len(msg.Title),
 		"body_bytes", len(msg.Body),
 		"message_pid", msg.PID,
+		"request_id_present", strings.TrimSpace(msg.RequestID) != "",
+		"operation_id_present", strings.TrimSpace(msg.OperationID) != "",
 	}
 }
 
