@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -51,10 +52,9 @@ are also sent. Use --push to always send push notifications.`,
 			// Check if stdin has data (piped input)
 			stat, _ := os.Stdin.Stat()
 			if (stat.Mode() & os.ModeCharDevice) == 0 {
-				buf := make([]byte, 4096)
-				n, _ := os.Stdin.Read(buf)
-				if n > 0 {
-					msg.Body = strings.TrimSpace(string(buf[:n]))
+				data, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<16))
+				if err == nil && len(data) > 0 {
+					msg.Body = strings.TrimSpace(string(data))
 				}
 			}
 		}
