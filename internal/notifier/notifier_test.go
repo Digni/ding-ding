@@ -1,8 +1,11 @@
 package notifier
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -71,6 +74,47 @@ func testConfig() config.Config {
 	cfg.Idle.ThresholdSeconds = 300
 	cfg.Notification.SuppressWhenFocused = true
 	return cfg
+}
+
+func captureDefaultLogger(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	previous := slog.Default()
+	var out bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&out, nil))
+	slog.SetDefault(logger)
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+	})
+	return &out
+}
+
+func decodeLogLines(t *testing.T, raw string) []map[string]any {
+	t.Helper()
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+
+	lines := strings.Split(trimmed, "\n")
+	records := make([]map[string]any, 0, len(lines))
+	for _, line := range lines {
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("failed to unmarshal log line %q: %v", line, err)
+		}
+		records = append(records, record)
+	}
+
+	return records
+}
+
+func findLogRecord(records []map[string]any, msg string) map[string]any {
+	for _, record := range records {
+		if got, ok := record["msg"].(string); ok && got == msg {
+			return record
+		}
+	}
+	return nil
 }
 
 // ─── resolveIdleState ────────────────────────────────────────────────────────
@@ -237,6 +281,44 @@ func TestNotify_ActiveUncertainFocus_TreatedAsFocused(t *testing.T) {
 	}
 	if state.systemNotifyCalled {
 		t.Error("expected systemNotify NOT called when focus is uncertain")
+	}
+}
+
+func TestNotify_LogsCorrelationStatusAndDuration(t *testing.T) {
+	state := setupStubs(t, 10*time.Second, nil, true)
+	logOut := captureDefaultLogger(t)
+	cfg := testConfig()
+
+	err := Notify(cfg, Message{Title: "test", Body: "body", Agent: "claude"})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if state.systemNotifyCalled {
+		t.Fatal("expected focused active path to remain suppressed")
+	}
+
+	records := decodeLogLines(t, logOut.String())
+	if len(records) == 0 {
+		t.Fatal("expected structured notifier logs")
+	}
+
+	start := findLogRecord(records, "notifier.notify.started")
+	if start == nil {
+		t.Fatal("expected notifier.notify.started record")
+	}
+	if _, ok := start["operation_id"].(string); !ok {
+		t.Fatalf("expected operation_id in started record, got %v", start["operation_id"])
+	}
+
+	complete := findLogRecord(records, "notifier.notify.completed")
+	if complete == nil {
+		t.Fatal("expected notifier.notify.completed record")
+	}
+	if complete["status"] != "ok" {
+		t.Fatalf("expected completion status ok, got %v", complete["status"])
+	}
+	if _, ok := complete["duration_ms"].(float64); !ok {
+		t.Fatalf("expected numeric duration_ms, got %T", complete["duration_ms"])
 	}
 }
 
@@ -474,6 +556,7 @@ func TestNotify_SystemNotifyErrorDoesNotBlock(t *testing.T) {
 
 func TestNotify_PushError_Propagated(t *testing.T) {
 	setupStubs(t, 600*time.Second, nil, false)
+	logOut := captureDefaultLogger(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -492,6 +575,18 @@ func TestNotify_PushError_Propagated(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ntfy") {
 		t.Errorf("expected error to contain 'ntfy', got %q", err.Error())
+	}
+
+	records := decodeLogLines(t, logOut.String())
+	errorRecord := findLogRecord(records, "notifier.notify.error")
+	if errorRecord == nil {
+		t.Fatal("expected notifier.notify.error record")
+	}
+	if errorRecord["status"] != "error" {
+		t.Fatalf("expected error status, got %v", errorRecord["status"])
+	}
+	if _, ok := errorRecord["duration_ms"].(float64); !ok {
+		t.Fatalf("expected numeric duration_ms in error record, got %T", errorRecord["duration_ms"])
 	}
 }
 
