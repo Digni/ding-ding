@@ -14,8 +14,10 @@ var rootCmd = &cobra.Command{
 	Short: "Agent completion notifications",
 	Long: `ding-ding sends notifications when AI agents (Claude, opencode, etc.) finish tasks.
 
-It shows a system notification immediately, and if you're away from your
-computer (idle), it also pushes via ntfy, Discord, or custom webhooks.
+It uses attention-aware 3-tier notifications:
+- focused and active: quiet
+- active but unfocused: system notification
+- idle: system notification + push via ntfy, Discord, or webhooks.
 
 Usage:
   ding-ding notify -m "Task completed"    Send a notification via CLI

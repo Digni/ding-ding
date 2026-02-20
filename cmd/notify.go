@@ -16,6 +16,7 @@ var (
 	notifyMessage string
 	notifyAgent   string
 	forcePush     bool
+	testLocal     bool
 )
 
 var notifyCmd = &cobra.Command{
@@ -28,9 +29,12 @@ The message can be passed as a flag or as positional arguments:
   ding-ding notify Build succeeded
   echo "done" | ding-ding notify
 
-By default, a system notification is shown. If the user is idle beyond
-the configured threshold, push notifications (ntfy, Discord, webhook)
-are also sent. Use --push to always send push notifications.`,
+By default, focused terminals are quiet, active unfocused sends a system
+notification, and idle sends system + push notifications.
+
+Use --push to force remote push (ntfy/Discord/webhook) regardless of
+focus/idle, and --test-local to force a local/system notification even
+when focus suppression would normally silence it.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -63,15 +67,10 @@ are also sent. Use --push to always send push notifications.`,
 			msg.Body = "Agent task completed"
 		}
 
-		if forcePush {
-			// System notify + force push regardless of idle
-			if err := notifier.Notify(cfg, msg); err != nil {
-				fmt.Fprintf(os.Stderr, "notification error: %v\n", err)
-			}
-			return notifier.Push(cfg, msg)
-		}
-
-		return notifier.Notify(cfg, msg)
+		return notifier.NotifyWithOptions(cfg, msg, notifier.NotifyOptions{
+			ForcePush:  forcePush,
+			ForceLocal: testLocal,
+		})
 	},
 }
 
@@ -79,7 +78,8 @@ func init() {
 	notifyCmd.Flags().StringVarP(&notifyTitle, "title", "t", "ding ding!", "Notification title")
 	notifyCmd.Flags().StringVarP(&notifyMessage, "message", "m", "", "Notification message")
 	notifyCmd.Flags().StringVarP(&notifyAgent, "agent", "a", "", "Agent name (e.g. claude, opencode)")
-	notifyCmd.Flags().BoolVarP(&forcePush, "push", "p", false, "Always send push notifications (ignore idle check)")
+	notifyCmd.Flags().BoolVarP(&forcePush, "push", "p", false, "Always send push notifications (ignore idle/focus for remote backends)")
+	notifyCmd.Flags().BoolVar(&testLocal, "test-local", false, "Always send a local/system notification (ignore focused suppression)")
 
 	rootCmd.AddCommand(notifyCmd)
 }

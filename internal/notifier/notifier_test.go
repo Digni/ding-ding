@@ -16,6 +16,7 @@ import (
 // stubState records what happened during a test's systemNotify calls.
 type stubState struct {
 	systemNotifyCalled bool
+	systemNotifyCalls  int
 	systemNotifyTitle  string
 	systemNotifyBody   string
 }
@@ -45,6 +46,7 @@ func setupStubs(t *testing.T, idleDur time.Duration, idleErr error, focused bool
 	ProcessInFocusedTerminalFunc = func(pid int) bool { return focused }
 	SystemNotifyFunc = func(title, body string) error {
 		state.systemNotifyCalled = true
+		state.systemNotifyCalls++
 		state.systemNotifyTitle = title
 		state.systemNotifyBody = body
 		return nil
@@ -211,6 +213,157 @@ func TestNotify_SuppressFocusDisabled(t *testing.T) {
 	// Should reach Tier 2 (active + focus=false → system notify called)
 	if !state.systemNotifyCalled {
 		t.Error("expected systemNotify called when SuppressWhenFocused=false")
+	}
+}
+
+func TestNotifyWithOptions_ForcePush_DoesNotDoubleSendWhenIdle(t *testing.T) {
+	setupStubs(t, 600*time.Second, nil, false)
+
+	pushCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pushCount++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := testConfig()
+	cfg.Ntfy.Enabled = true
+	cfg.Ntfy.Server = srv.URL
+	cfg.Ntfy.Topic = "test"
+	httpClient = srv.Client()
+
+	err := NotifyWithOptions(cfg, Message{Title: "test", Body: "body"}, NotifyOptions{ForcePush: true})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if pushCount != 1 {
+		t.Fatalf("expected one push call, got %d", pushCount)
+	}
+}
+
+func TestNotifyWithOptions_ForcePush_ActiveFocusedSkipsLocal(t *testing.T) {
+	state := setupStubs(t, 10*time.Second, nil, true)
+
+	pushCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pushCount++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := testConfig()
+	cfg.Ntfy.Enabled = true
+	cfg.Ntfy.Server = srv.URL
+	cfg.Ntfy.Topic = "test"
+	httpClient = srv.Client()
+
+	err := NotifyWithOptions(cfg, Message{Title: "test", Body: "body"}, NotifyOptions{ForcePush: true})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if state.systemNotifyCalled {
+		t.Fatal("expected system notification to stay suppressed without ForceLocal")
+	}
+	if state.systemNotifyCalls != 0 {
+		t.Fatalf("expected zero system notifications, got %d", state.systemNotifyCalls)
+	}
+	if pushCount != 1 {
+		t.Fatalf("expected one push call, got %d", pushCount)
+	}
+}
+
+func TestNotifyWithOptions_ForcePush_ActiveUnfocusedSendsSystemAndPush(t *testing.T) {
+	state := setupStubs(t, 10*time.Second, nil, false)
+
+	pushCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pushCount++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := testConfig()
+	cfg.Ntfy.Enabled = true
+	cfg.Ntfy.Server = srv.URL
+	cfg.Ntfy.Topic = "test"
+	httpClient = srv.Client()
+
+	err := NotifyWithOptions(cfg, Message{Title: "test", Body: "body"}, NotifyOptions{ForcePush: true})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !state.systemNotifyCalled {
+		t.Fatal("expected system notification for active + unfocused")
+	}
+	if state.systemNotifyCalls != 1 {
+		t.Fatalf("expected one system notification, got %d", state.systemNotifyCalls)
+	}
+	if pushCount != 1 {
+		t.Fatalf("expected one push call, got %d", pushCount)
+	}
+}
+
+func TestNotifyWithOptions_ForceLocal_ActiveFocusedSendsSystemOnly(t *testing.T) {
+	state := setupStubs(t, 10*time.Second, nil, true)
+	cfg := testConfig()
+
+	err := NotifyWithOptions(cfg, Message{Title: "test", Body: "body"}, NotifyOptions{ForceLocal: true})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !state.systemNotifyCalled {
+		t.Fatal("expected forced local/system notification")
+	}
+	if state.systemNotifyCalls != 1 {
+		t.Fatalf("expected one system notification, got %d", state.systemNotifyCalls)
+	}
+}
+
+func TestNotifyWithOptions_ForceLocal_SystemNotifyErrorPropagated(t *testing.T) {
+	setupStubs(t, 10*time.Second, nil, true)
+
+	SystemNotifyFunc = func(title, body string) error {
+		return errors.New("system notify failed")
+	}
+
+	cfg := testConfig()
+	err := NotifyWithOptions(cfg, Message{Title: "test", Body: "body"}, NotifyOptions{ForceLocal: true})
+	if err == nil {
+		t.Fatal("expected error when ForceLocal is set and system notify fails")
+	}
+	if !strings.Contains(err.Error(), "system notification") {
+		t.Fatalf("expected wrapped system notification error, got %q", err.Error())
+	}
+}
+
+func TestNotifyWithOptions_ForcePushAndForceLocal_ActiveFocusedSendsBoth(t *testing.T) {
+	state := setupStubs(t, 10*time.Second, nil, true)
+
+	pushCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pushCount++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := testConfig()
+	cfg.Ntfy.Enabled = true
+	cfg.Ntfy.Server = srv.URL
+	cfg.Ntfy.Topic = "test"
+	httpClient = srv.Client()
+
+	err := NotifyWithOptions(cfg, Message{Title: "test", Body: "body"}, NotifyOptions{ForcePush: true, ForceLocal: true})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !state.systemNotifyCalled {
+		t.Fatal("expected forced local/system notification")
+	}
+	if state.systemNotifyCalls != 1 {
+		t.Fatalf("expected one system notification, got %d", state.systemNotifyCalls)
+	}
+	if pushCount != 1 {
+		t.Fatalf("expected one push call, got %d", pushCount)
 	}
 }
 

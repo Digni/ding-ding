@@ -29,6 +29,15 @@ type Message struct {
 	PID   int    `json:"pid,omitempty"`   // caller's PID for focus detection in server mode
 }
 
+// NotifyOptions controls forced notification behavior.
+type NotifyOptions struct {
+	// ForcePush sends configured push backends regardless of idle/focus state.
+	ForcePush bool
+	// ForceLocal sends the local/system notification even when focus suppression
+	// would normally silence it.
+	ForceLocal bool
+}
+
 // resolveIdleState determines whether the user is idle using the configured
 // threshold. If idle detection fails, FallbackPolicy governs the result:
 // "idle" treats the user as idle; anything else (including "active") treats
@@ -61,6 +70,11 @@ func resolveIdleState(cfg config.Config) (userIdle bool, idleTime time.Duration)
 //	Active + terminal unfocused → system notification only
 //	Idle                        → system notification + push
 func Notify(cfg config.Config, msg Message) error {
+	return NotifyWithOptions(cfg, msg, NotifyOptions{})
+}
+
+// NotifyWithOptions handles CLI invocations with optional force behavior.
+func NotifyWithOptions(cfg config.Config, msg Message, opts NotifyOptions) error {
 	if msg.Title == "" {
 		msg.Title = "ding ding!"
 	}
@@ -68,7 +82,7 @@ func Notify(cfg config.Config, msg Message) error {
 	userIdle, idleTime := resolveIdleState(cfg)
 	focused := cfg.Notification.SuppressWhenFocused && TerminalFocusedFunc()
 
-	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, func() {
+	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, opts, func() {
 		log.Printf("terminal focused, user active (idle %s) — suppressing notification", idleTime)
 	})
 }
@@ -90,34 +104,56 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 		focused = ProcessInFocusedTerminalFunc(msg.PID)
 	}
 
-	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, func() {
+	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, NotifyOptions{}, func() {
 		log.Printf("agent terminal focused (pid %d), user active (idle %s) — suppressing notification", msg.PID, idleTime)
 	})
 }
 
-func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTime time.Duration, focused bool, tier1Log func()) error {
+func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTime time.Duration, focused bool, opts NotifyOptions, tier1Log func()) error {
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
+	var localErr error
 
 	// Tier 1: user is active and looking at the agent terminal — do nothing
-	if !userIdle && focused {
-		tier1Log()
-		return nil
+	if !userIdle && focused && !opts.ForceLocal {
+		if !opts.ForcePush {
+			tier1Log()
+			return nil
+		}
+
+		log.Printf("terminal focused, user active (idle %s) — forcing push notifications", idleTime)
+		return pushAll(cfg, msg)
 	}
 
 	// Tier 2 & 3: send system notification (user isn't looking at the terminal)
 	if err := SystemNotifyFunc(msg.Title, msg.Body); err != nil {
 		log.Printf("system notification failed: %v", err)
+		if opts.ForceLocal {
+			localErr = fmt.Errorf("system notification: %w", err)
+		}
 	}
 
-	// Tier 2: user is active but on a different window — no push needed
-	if !userIdle {
+	// Tier 2: user is active but on a different window — no push needed unless forced
+	if !userIdle && !opts.ForcePush {
 		log.Printf("user active (idle %s, threshold %s) — skipping push", idleTime, threshold)
-		return nil
+		return localErr
 	}
 
-	// Tier 3: user is idle — send push notifications
-	log.Printf("user idle for %s (threshold %s) — sending push notifications", idleTime, threshold)
-	return pushAll(cfg, msg)
+	if opts.ForcePush && !userIdle {
+		log.Printf("user active (idle %s, threshold %s) — forcing push notifications", idleTime, threshold)
+	} else {
+		// Tier 3: user is idle — send push notifications
+		log.Printf("user idle for %s (threshold %s) — sending push notifications", idleTime, threshold)
+	}
+
+	pushErr := pushAll(cfg, msg)
+	if localErr != nil {
+		if pushErr != nil {
+			return errors.Join(localErr, pushErr)
+		}
+		return localErr
+	}
+
+	return pushErr
 }
 
 // Push sends to all configured remote backends regardless of idle/focus state.
