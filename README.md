@@ -41,9 +41,18 @@ ding-ding notify Task completed successfully
 # Pipe output
 echo "tests passed" | ding-ding notify
 
-# Force push (ignore idle check, always send to ntfy/Discord/webhook)
+# Force push (always send remote push, even if focused/active)
 ding-ding notify -p -m "Deploy complete"
+
+# Force local/system notification even when focused suppression would mute it
+ding-ding notify --test-local -m "Testing local notification"
+
+# Force both local/system and remote push
+ding-ding notify -p --test-local -m "Test all channels"
 ```
+
+`--push` only affects remote push backends (ntfy/Discord/webhook). It does not
+implicitly force a local/system notification; use `--test-local` for that.
 
 ### HTTP Server
 
