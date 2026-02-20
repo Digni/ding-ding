@@ -1,10 +1,10 @@
 package notifier
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/Digni/ding-ding/internal/config"
 )
@@ -22,7 +22,13 @@ func sendDiscord(cfg config.DiscordConfig, msg Message) error {
 		return fmt.Errorf("marshal payload: %w", err)
 	}
 
-	resp, err := http.Post(cfg.WebhookURL, "application/json", strings.NewReader(string(payload)))
+	req, err := http.NewRequest("POST", cfg.WebhookURL, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}

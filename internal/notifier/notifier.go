@@ -1,14 +1,18 @@
 package notifier
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/Digni/ding-ding/internal/config"
 	"github.com/Digni/ding-ding/internal/focus"
 	"github.com/Digni/ding-ding/internal/idle"
 )
+
+var httpClient = &http.Client{Timeout: 15 * time.Second}
 
 // Message represents a notification to be sent.
 type Message struct {
@@ -30,6 +34,9 @@ func Notify(cfg config.Config, msg Message) error {
 
 	idleTime := idle.Duration()
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
+	if threshold == 0 {
+		log.Printf("warning: idle.threshold_seconds is 0, push notifications will never trigger based on idle state")
+	}
 	userIdle := threshold > 0 && idleTime >= threshold
 	focused := cfg.Notification.SuppressWhenFocused && focus.TerminalFocused()
 
@@ -66,6 +73,9 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 
 	idleTime := idle.Duration()
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
+	if threshold == 0 {
+		log.Printf("warning: idle.threshold_seconds is 0, push notifications will never trigger based on idle state")
+	}
 	userIdle := threshold > 0 && idleTime >= threshold
 
 	// If the caller sent a PID, we can check focus for their terminal
@@ -122,7 +132,7 @@ func pushAll(cfg config.Config, msg Message) error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("push errors: %v", errs)
+		return errors.Join(errs...)
 	}
 
 	return nil
