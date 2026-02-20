@@ -217,7 +217,7 @@ func TestNotify_SuppressFocusDisabled(t *testing.T) {
 }
 
 func TestNotifyWithOptions_ForcePush_DoesNotDoubleSendWhenIdle(t *testing.T) {
-	setupStubs(t, 600*time.Second, nil, false)
+	state := setupStubs(t, 600*time.Second, nil, false)
 
 	pushCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -238,6 +238,9 @@ func TestNotifyWithOptions_ForcePush_DoesNotDoubleSendWhenIdle(t *testing.T) {
 	}
 	if pushCount != 1 {
 		t.Fatalf("expected one push call, got %d", pushCount)
+	}
+	if state.systemNotifyCalled {
+		t.Fatal("expected ForcePush to remain remote-only during idle")
 	}
 }
 
@@ -272,7 +275,7 @@ func TestNotifyWithOptions_ForcePush_ActiveFocusedSkipsLocal(t *testing.T) {
 	}
 }
 
-func TestNotifyWithOptions_ForcePush_ActiveUnfocusedSendsSystemAndPush(t *testing.T) {
+func TestNotifyWithOptions_ForcePush_ActiveUnfocusedSendsPushOnly(t *testing.T) {
 	state := setupStubs(t, 10*time.Second, nil, false)
 
 	pushCount := 0
@@ -292,14 +295,50 @@ func TestNotifyWithOptions_ForcePush_ActiveUnfocusedSendsSystemAndPush(t *testin
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if !state.systemNotifyCalled {
-		t.Fatal("expected system notification for active + unfocused")
+	if state.systemNotifyCalled {
+		t.Fatal("expected ForcePush to be remote-only for active + unfocused")
 	}
-	if state.systemNotifyCalls != 1 {
-		t.Fatalf("expected one system notification, got %d", state.systemNotifyCalls)
+	if state.systemNotifyCalls != 0 {
+		t.Fatalf("expected zero system notifications, got %d", state.systemNotifyCalls)
 	}
 	if pushCount != 1 {
 		t.Fatalf("expected one push call, got %d", pushCount)
+	}
+}
+
+func TestNotifyWithOptions_ForcePush_NoBackendsEnabledReturnsError(t *testing.T) {
+	state := setupStubs(t, 10*time.Second, nil, false)
+	cfg := testConfig()
+
+	err := NotifyWithOptions(cfg, Message{Title: "test", Body: "body"}, NotifyOptions{ForcePush: true})
+	if err == nil {
+		t.Fatal("expected error when ForcePush is set without enabled push backends")
+	}
+	if !strings.Contains(err.Error(), "force push requested but no push backends are enabled") {
+		t.Fatalf("expected clear no-backends ForcePush error, got %q", err.Error())
+	}
+	if state.systemNotifyCalled {
+		t.Fatal("expected no local/system notification for ForcePush-only path")
+	}
+}
+
+func TestNotifyWithOptions_ForcePushAndForceLocal_NoBackendsEnabledReturnsJoinedError(t *testing.T) {
+	setupStubs(t, 10*time.Second, nil, false)
+
+	SystemNotifyFunc = func(title, body string) error {
+		return errors.New("system notify failed")
+	}
+
+	cfg := testConfig()
+	err := NotifyWithOptions(cfg, Message{Title: "test", Body: "body"}, NotifyOptions{ForcePush: true, ForceLocal: true})
+	if err == nil {
+		t.Fatal("expected error when ForcePush is set without enabled push backends")
+	}
+	if !strings.Contains(err.Error(), "system notification") {
+		t.Fatalf("expected joined error to include system notification, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "force push requested but no push backends are enabled") {
+		t.Fatalf("expected joined error to include no-backends message, got %q", err.Error())
 	}
 }
 
