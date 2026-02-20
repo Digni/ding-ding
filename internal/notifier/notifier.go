@@ -15,6 +15,8 @@ import (
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
+var errForcePushNoBackends = errors.New("force push requested but no push backends are enabled (ntfy, discord, webhook)")
+
 // Test hooks — exported for cross-package test stubbing (internal/ boundary prevents public leakage).
 var IdleDurationFunc = idle.Duration
 var TerminalFocusedFunc = focus.TerminalFocused
@@ -112,6 +114,7 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTime time.Duration, focused bool, opts NotifyOptions, tier1Log func()) error {
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
 	var localErr error
+	forcePushNoBackends := opts.ForcePush && !hasEnabledPushBackends(cfg)
 
 	// Tier 1: user is active and looking at the agent terminal — do nothing
 	if !userIdle && focused && !opts.ForceLocal {
@@ -120,15 +123,23 @@ func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTim
 			return nil
 		}
 
+		if forcePushNoBackends {
+			return errForcePushNoBackends
+		}
+
 		log.Printf("terminal focused, user active (idle %s) — forcing push notifications", idleTime)
 		return pushAll(cfg, msg)
 	}
 
+	shouldSendLocal := !opts.ForcePush || opts.ForceLocal
+
 	// Tier 2 & 3: send system notification (user isn't looking at the terminal)
-	if err := SystemNotifyFunc(msg.Title, msg.Body); err != nil {
-		log.Printf("system notification failed: %v", err)
-		if opts.ForceLocal {
-			localErr = fmt.Errorf("system notification: %w", err)
+	if shouldSendLocal {
+		if err := SystemNotifyFunc(msg.Title, msg.Body); err != nil {
+			log.Printf("system notification failed: %v", err)
+			if opts.ForceLocal {
+				localErr = fmt.Errorf("system notification: %w", err)
+			}
 		}
 	}
 
@@ -136,6 +147,13 @@ func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTim
 	if !userIdle && !opts.ForcePush {
 		log.Printf("user active (idle %s, threshold %s) — skipping push", idleTime, threshold)
 		return localErr
+	}
+
+	if forcePushNoBackends {
+		if localErr != nil {
+			return errors.Join(localErr, errForcePushNoBackends)
+		}
+		return errForcePushNoBackends
 	}
 
 	if opts.ForcePush && !userIdle {
@@ -154,6 +172,10 @@ func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTim
 	}
 
 	return pushErr
+}
+
+func hasEnabledPushBackends(cfg config.Config) bool {
+	return cfg.Ntfy.Enabled || cfg.Discord.Enabled || cfg.Webhook.Enabled
 }
 
 // Push sends to all configured remote backends regardless of idle/focus state.
