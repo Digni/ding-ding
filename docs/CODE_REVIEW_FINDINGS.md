@@ -163,5 +163,6 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### I7: Add tests
 - **File:** entire repo
 - **Effort:** hard
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Priority targets:** 3-tier dispatch logic, config loading, HTTP handler routing.
+- **Done:** 65 tests across 8 files covering config (7), notifier dispatch (24), HTTP backends (13), server routing (13), xmlEscape (9), focus ancestor (9). Minimal refactoring for testability: `LoadFromBytes`, `NewMux`, function variables for idle/focus/systemNotify stubbing.
