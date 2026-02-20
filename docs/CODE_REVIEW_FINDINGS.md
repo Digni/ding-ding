@@ -74,9 +74,9 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### W3: Silent idle detection failures
 - **File:** `idle_darwin.go`, `idle_linux.go`
 - **Effort:** medium
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** If `bash`/`ioreg`/`xprintidle`/`dbus-send` fails, returns 0 (user appears always active). Push notifications silently suppressed. Headless servers never send pushes.
-- **Fix:** Log warning when idle detection fails. Consider `idle.assume_idle_if_unknown` config option.
+- **Fix:** `idle.Duration()` now returns `(time.Duration, error)`. Added `idle.fallback_policy` config (`"active"`/`"idle"`). `resolveIdleState()` helper in notifier uses fallback policy when detection fails.
 
 ### W4: GNOME Wayland focus detection fails
 - **File:** `internal/focus/focus_linux.go`
