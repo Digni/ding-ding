@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -38,7 +39,8 @@ type WebhookConfig struct {
 }
 
 type IdleConfig struct {
-	ThresholdSeconds int `yaml:"threshold_seconds"`
+	ThresholdSeconds int    `yaml:"threshold_seconds"`
+	FallbackPolicy   string `yaml:"fallback_policy"`
 }
 
 type NotificationConfig struct {
@@ -72,12 +74,13 @@ func DefaultConfig() Config {
 		},
 		Idle: IdleConfig{
 			ThresholdSeconds: 300,
+			FallbackPolicy:   "active",
 		},
 		Notification: NotificationConfig{
 			SuppressWhenFocused: true,
 		},
 		Server: ServerConfig{
-			Address: ":8228",
+			Address: "127.0.0.1:8228",
 		},
 		Sound: SoundConfig{
 			Enabled: true,
@@ -103,56 +106,63 @@ func ConfigPath() (string, error) {
 	return filepath.Join(dir, "config.yaml"), nil
 }
 
-// Load reads the config from disk, falling back to defaults.
-func Load() (Config, error) {
+// LoadFromBytes parses raw YAML config bytes, overlaying on defaults and validating.
+func LoadFromBytes(data []byte) (Config, error) {
 	cfg := DefaultConfig()
-
-	path, err := ConfigPath()
-	if err != nil {
-		return cfg, nil // return defaults if we can't determine path
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil // no config file, use defaults
-		}
-		return cfg, fmt.Errorf("read config: %w", err)
-	}
-
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
-
+	switch cfg.Idle.FallbackPolicy {
+	case "active", "idle":
+		// valid
+	default:
+		log.Printf("warning: unrecognized idle.fallback_policy %q, using \"active\"", cfg.Idle.FallbackPolicy)
+		cfg.Idle.FallbackPolicy = "active"
+	}
 	return cfg, nil
 }
 
-// Init creates a default config file if one doesn't exist.
-func Init() error {
+// Load reads the config from disk, falling back to defaults.
+func Load() (Config, error) {
 	path, err := ConfigPath()
 	if err != nil {
-		return err
+		return DefaultConfig(), nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return DefaultConfig(), nil
+		}
+		return Config{}, fmt.Errorf("read config: %w", err)
+	}
+	return LoadFromBytes(data)
+}
+
+// Init creates a default config file if one doesn't exist.
+func Init() (string, error) {
+	path, err := ConfigPath()
+	if err != nil {
+		return "", err
 	}
 
 	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("config already exists at %s", path)
+		return "", fmt.Errorf("config already exists at %s", path)
 	}
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
+		return "", fmt.Errorf("create config dir: %w", err)
 	}
 
 	cfg := DefaultConfig()
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
+		return "", fmt.Errorf("marshal config: %w", err)
 	}
 
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("write config: %w", err)
+		return "", fmt.Errorf("write config: %w", err)
 	}
 
-	fmt.Printf("Config created at %s\n", path)
-	return nil
+	return path, nil
 }

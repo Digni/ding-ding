@@ -30,7 +30,7 @@ func sendNtfy(cfg config.NtfyConfig, msg Message) error {
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}

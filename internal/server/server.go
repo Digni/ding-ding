@@ -2,22 +2,29 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/Digni/ding-ding/internal/config"
 	"github.com/Digni/ding-ding/internal/notifier"
 )
 
-// Start launches the HTTP server that agents can POST to.
-func Start(cfg config.Config) error {
+// NewMux builds the HTTP handler for ding-ding's server endpoints.
+func NewMux(cfg config.Config) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /notify", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 		var msg notifier.Message
 		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
-			http.Error(w, fmt.Sprintf("invalid JSON: %v", err), http.StatusBadRequest)
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
 
@@ -30,12 +37,13 @@ func Start(cfg config.Config) error {
 
 		if err := notifier.NotifyRemote(cfg, msg); err != nil {
 			log.Printf("notification error: %v", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "notification delivery failed", http.StatusInternalServerError)
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, `{"status":"ok"}`)
+		w.Write([]byte(`{"status":"ok"}` + "\n"))
 	})
 
 	// Simple GET endpoint for quick curl usage
@@ -55,19 +63,34 @@ func Start(cfg config.Config) error {
 
 		if err := notifier.NotifyRemote(cfg, msg); err != nil {
 			log.Printf("notification error: %v", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "notification delivery failed", http.StatusInternalServerError)
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, `{"status":"ok"}`)
+		w.Write([]byte(`{"status":"ok"}` + "\n"))
 	})
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"status":"ok"}`)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}` + "\n"))
 	})
 
+	return mux
+}
+
+// Start launches the HTTP server that agents can POST to.
+func Start(cfg config.Config) error {
+	mux := NewMux(cfg)
 	log.Printf("ding-ding server listening on %s", cfg.Server.Address)
-	return http.ListenAndServe(cfg.Server.Address, mux)
+	srv := &http.Server{
+		Addr:         cfg.Server.Address,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+	return srv.ListenAndServe()
 }

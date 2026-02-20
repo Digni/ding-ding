@@ -1,10 +1,10 @@
 package notifier
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/Digni/ding-ding/internal/config"
 )
@@ -20,13 +20,13 @@ func sendWebhook(cfg config.WebhookConfig, msg Message) error {
 		method = "POST"
 	}
 
-	req, err := http.NewRequest(method, cfg.URL, strings.NewReader(string(payload)))
+	req, err := http.NewRequest(method, cfg.URL, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}

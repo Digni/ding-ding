@@ -25,21 +25,6 @@ func processInFocusedTerminal(pid int) bool {
 	return isAncestor(focusedPID, pid)
 }
 
-// isAncestor checks whether ancestorPID is in the process tree above pid.
-func isAncestor(ancestorPID, pid int) bool {
-	for pid > 1 {
-		if pid == ancestorPID {
-			return true
-		}
-		ppid, err := parentPID(pid)
-		if err != nil || ppid == pid {
-			return false
-		}
-		pid = ppid
-	}
-	return false
-}
-
 func parentPID(pid int) (int, error) {
 	out, err := exec.Command("ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {

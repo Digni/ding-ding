@@ -24,6 +24,7 @@ webhook:
 # has been idle for longer than this threshold
 idle:
   threshold_seconds: 300           # 5 minutes
+  fallback_policy: "active"       # active, idle
 
 # Notification behavior
 notification:
@@ -31,7 +32,7 @@ notification:
 
 # HTTP server settings (for `ding-ding serve`)
 server:
-  address: ":8228"
+  address: "127.0.0.1:8228"
 
 # Sound settings
 sound:

@@ -34,20 +34,6 @@ func processInFocusedTerminal(pid int) bool {
 	return isAncestor(int(focusedPID), pid)
 }
 
-func isAncestor(ancestorPID, pid int) bool {
-	for pid > 1 {
-		if pid == ancestorPID {
-			return true
-		}
-		ppid, err := parentPID(pid)
-		if err != nil || ppid == pid || ppid == 0 {
-			return false
-		}
-		pid = ppid
-	}
-	return false
-}
-
 type processBasicInfo struct {
 	ExitStatus                   uintptr
 	PebBaseAddress               uintptr

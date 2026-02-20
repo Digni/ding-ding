@@ -1,8 +1,11 @@
 package notifier
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
+	"sync"
 	"time"
 
 	"github.com/Digni/ding-ding/internal/config"
@@ -10,12 +13,46 @@ import (
 	"github.com/Digni/ding-ding/internal/idle"
 )
 
+var httpClient = &http.Client{Timeout: 15 * time.Second}
+
+// Test hooks — exported for cross-package test stubbing (internal/ boundary prevents public leakage).
+var IdleDurationFunc = idle.Duration
+var TerminalFocusedFunc = focus.TerminalFocused
+var ProcessInFocusedTerminalFunc = focus.ProcessInFocusedTerminal
+var SystemNotifyFunc = systemNotify
+
 // Message represents a notification to be sent.
 type Message struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
 	Agent string `json:"agent,omitempty"` // e.g. "claude", "opencode"
 	PID   int    `json:"pid,omitempty"`   // caller's PID for focus detection in server mode
+}
+
+// resolveIdleState determines whether the user is idle using the configured
+// threshold. If idle detection fails, FallbackPolicy governs the result:
+// "idle" treats the user as idle; anything else (including "active") treats
+// the user as active. Returns (userIdle, idleTime).
+func resolveIdleState(cfg config.Config) (userIdle bool, idleTime time.Duration) {
+	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
+	if threshold == 0 {
+		log.Printf("warning: idle.threshold_seconds is 0, push notifications will never trigger based on idle state")
+		return false, 0
+	}
+
+	dur, err := IdleDurationFunc()
+	if err != nil {
+		switch cfg.Idle.FallbackPolicy {
+		case "idle":
+			log.Printf("idle detection failed (%v), fallback_policy=idle — treating as idle", err)
+			return true, 0
+		default:
+			log.Printf("idle detection failed (%v), fallback_policy=active — treating as active", err)
+			return false, 0
+		}
+	}
+
+	return dur >= threshold, dur
 }
 
 // Notify handles CLI invocations with 3-tier logic:
@@ -28,19 +65,47 @@ func Notify(cfg config.Config, msg Message) error {
 		msg.Title = "ding ding!"
 	}
 
-	idleTime := idle.Duration()
+	userIdle, idleTime := resolveIdleState(cfg)
+	focused := cfg.Notification.SuppressWhenFocused && TerminalFocusedFunc()
+
+	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, func() {
+		log.Printf("terminal focused, user active (idle %s) — suppressing notification", idleTime)
+	})
+}
+
+// NotifyRemote handles HTTP server invocations. If the caller provides a PID,
+// focus detection uses that PID's process tree to check if the agent's
+// terminal is focused. Without a PID, focus detection is skipped and a
+// system notification is always sent.
+func NotifyRemote(cfg config.Config, msg Message) error {
+	if msg.Title == "" {
+		msg.Title = "ding ding!"
+	}
+
+	userIdle, idleTime := resolveIdleState(cfg)
+
+	// If the caller sent a PID, we can check focus for their terminal
+	focused := false
+	if msg.PID > 0 && cfg.Notification.SuppressWhenFocused {
+		focused = ProcessInFocusedTerminalFunc(msg.PID)
+	}
+
+	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, func() {
+		log.Printf("agent terminal focused (pid %d), user active (idle %s) — suppressing notification", msg.PID, idleTime)
+	})
+}
+
+func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTime time.Duration, focused bool, tier1Log func()) error {
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
-	userIdle := threshold > 0 && idleTime >= threshold
-	focused := cfg.Notification.SuppressWhenFocused && focus.TerminalFocused()
 
 	// Tier 1: user is active and looking at the agent terminal — do nothing
 	if !userIdle && focused {
-		log.Printf("terminal focused, user active (idle %s) — suppressing notification", idleTime)
+		tier1Log()
 		return nil
 	}
 
 	// Tier 2 & 3: send system notification (user isn't looking at the terminal)
-	if err := systemNotify(msg.Title, msg.Body); err != nil {
+	if err := SystemNotifyFunc(msg.Title, msg.Body); err != nil {
 		log.Printf("system notification failed: %v", err)
 	}
 
@@ -55,43 +120,6 @@ func Notify(cfg config.Config, msg Message) error {
 	return pushAll(cfg, msg)
 }
 
-// NotifyRemote handles HTTP server invocations. If the caller provides a PID,
-// focus detection uses that PID's process tree to check if the agent's
-// terminal is focused. Without a PID, focus detection is skipped and a
-// system notification is always sent.
-func NotifyRemote(cfg config.Config, msg Message) error {
-	if msg.Title == "" {
-		msg.Title = "ding ding!"
-	}
-
-	idleTime := idle.Duration()
-	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
-	userIdle := threshold > 0 && idleTime >= threshold
-
-	// If the caller sent a PID, we can check focus for their terminal
-	focused := false
-	if msg.PID > 0 && cfg.Notification.SuppressWhenFocused {
-		focused = focus.ProcessInFocusedTerminal(msg.PID)
-	}
-
-	if !userIdle && focused {
-		log.Printf("agent terminal focused (pid %d), user active (idle %s) — suppressing notification", msg.PID, idleTime)
-		return nil
-	}
-
-	if err := systemNotify(msg.Title, msg.Body); err != nil {
-		log.Printf("system notification failed: %v", err)
-	}
-
-	if !userIdle {
-		log.Printf("user active (idle %s, threshold %s) — skipping push", idleTime, threshold)
-		return nil
-	}
-
-	log.Printf("user idle for %s (threshold %s) — sending push notifications", idleTime, threshold)
-	return pushAll(cfg, msg)
-}
-
 // Push sends to all configured remote backends regardless of idle/focus state.
 func Push(cfg config.Config, msg Message) error {
 	if msg.Title == "" {
@@ -101,28 +129,54 @@ func Push(cfg config.Config, msg Message) error {
 }
 
 func pushAll(cfg config.Config, msg Message) error {
-	var errs []error
+	type pushTarget struct {
+		label string
+		send  func() error
+	}
 
+	var targets []pushTarget
 	if cfg.Ntfy.Enabled {
-		if err := sendNtfy(cfg.Ntfy, msg); err != nil {
-			errs = append(errs, fmt.Errorf("ntfy: %w", err))
-		}
+		targets = append(targets, pushTarget{
+			label: "ntfy",
+			send:  func() error { return sendNtfy(cfg.Ntfy, msg) },
+		})
 	}
-
 	if cfg.Discord.Enabled {
-		if err := sendDiscord(cfg.Discord, msg); err != nil {
-			errs = append(errs, fmt.Errorf("discord: %w", err))
-		}
+		targets = append(targets, pushTarget{
+			label: "discord",
+			send:  func() error { return sendDiscord(cfg.Discord, msg) },
+		})
+	}
+	if cfg.Webhook.Enabled {
+		targets = append(targets, pushTarget{
+			label: "webhook",
+			send:  func() error { return sendWebhook(cfg.Webhook, msg) },
+		})
 	}
 
-	if cfg.Webhook.Enabled {
-		if err := sendWebhook(cfg.Webhook, msg); err != nil {
-			errs = append(errs, fmt.Errorf("webhook: %w", err))
-		}
+	errCh := make(chan error, len(targets))
+	var wg sync.WaitGroup
+	for _, target := range targets {
+		target := target
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := target.send(); err != nil {
+				errCh <- fmt.Errorf("%s: %w", target.label, err)
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("push errors: %v", errs)
+		return errors.Join(errs...)
 	}
 
 	return nil
