@@ -7,9 +7,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:   "ding-ding",
 	Short: "Agent completion notifications",
+	Version: Version,
 	Long: `ding-ding sends notifications when AI agents (Claude, opencode, etc.) finish tasks.
 
 It shows a system notification immediately, and if you're away from your
