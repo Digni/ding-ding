@@ -54,6 +54,7 @@ jobs:
       - name: Validate
         run: |
           go vet ./...
+          go test ./...
           go build .
 
       - name: Build binary
