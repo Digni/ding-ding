@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -414,6 +415,68 @@ func TestPushAll_SingleBackendSuccess(t *testing.T) {
 	err := pushAll(cfg, Message{Title: "test", Body: "body"})
 	if err != nil {
 		t.Fatalf("expected nil for successful ntfy, got %v", err)
+	}
+}
+
+func TestPushAll_EnabledBackendsRunConcurrently(t *testing.T) {
+	setupStubs(t, 0, nil, false)
+
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseBackends := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	t.Cleanup(releaseBackends)
+
+	ntfySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- "ntfy"
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ntfySrv.Close()
+
+	discordSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- "discord"
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer discordSrv.Close()
+
+	cfg := testConfig()
+	cfg.Ntfy.Enabled = true
+	cfg.Ntfy.Server = ntfySrv.URL
+	cfg.Ntfy.Topic = "test"
+	cfg.Discord.Enabled = true
+	cfg.Discord.WebhookURL = discordSrv.URL
+	httpClient = &http.Client{Timeout: time.Second}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- pushAll(cfg, Message{Title: "test", Body: "body"})
+	}()
+
+	seen := map[string]bool{}
+	for len(seen) < 2 {
+		select {
+		case backend := <-started:
+			seen[backend] = true
+		case <-time.After(2 * time.Second):
+			t.Fatalf("expected both backends to start before release; saw %v", seen)
+		}
+	}
+
+	releaseBackends()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("pushAll did not complete after releasing backends")
 	}
 }
 

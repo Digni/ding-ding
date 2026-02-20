@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/Digni/ding-ding/internal/config"
@@ -135,24 +136,50 @@ func Push(cfg config.Config, msg Message) error {
 }
 
 func pushAll(cfg config.Config, msg Message) error {
-	var errs []error
+	type pushTarget struct {
+		label string
+		send  func() error
+	}
 
+	var targets []pushTarget
 	if cfg.Ntfy.Enabled {
-		if err := sendNtfy(cfg.Ntfy, msg); err != nil {
-			errs = append(errs, fmt.Errorf("ntfy: %w", err))
-		}
+		targets = append(targets, pushTarget{
+			label: "ntfy",
+			send:  func() error { return sendNtfy(cfg.Ntfy, msg) },
+		})
 	}
-
 	if cfg.Discord.Enabled {
-		if err := sendDiscord(cfg.Discord, msg); err != nil {
-			errs = append(errs, fmt.Errorf("discord: %w", err))
-		}
+		targets = append(targets, pushTarget{
+			label: "discord",
+			send:  func() error { return sendDiscord(cfg.Discord, msg) },
+		})
+	}
+	if cfg.Webhook.Enabled {
+		targets = append(targets, pushTarget{
+			label: "webhook",
+			send:  func() error { return sendWebhook(cfg.Webhook, msg) },
+		})
 	}
 
-	if cfg.Webhook.Enabled {
-		if err := sendWebhook(cfg.Webhook, msg); err != nil {
-			errs = append(errs, fmt.Errorf("webhook: %w", err))
-		}
+	errCh := make(chan error, len(targets))
+	var wg sync.WaitGroup
+	for _, target := range targets {
+		target := target
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := target.send(); err != nil {
+				errCh <- fmt.Errorf("%s: %w", target.label, err)
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
 	}
 
 	if len(errs) > 0 {

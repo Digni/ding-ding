@@ -109,7 +109,7 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### W8: `pushAll` runs backends serially
 - **File:** `internal/notifier/notifier.go:103`
 - **Effort:** medium
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** With all three backends enabled, latency compounds.
 - **Fix:** Run senders concurrently with `errgroup` or goroutines.
 
