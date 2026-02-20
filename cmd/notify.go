@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Digni/ding-ding/internal/config"
 	"github.com/Digni/ding-ding/internal/notifier"
 	"github.com/spf13/cobra"
 )
@@ -52,10 +51,12 @@ when focus suppression would normally silence it.`,
 			return fmt.Errorf("invalid flag -test-local; use --test-local")
 		}
 
-		cfg, err := config.Load()
+		loadResult, err := loadConfigForCommand()
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
+		printConfigSourceDetails(cmd, loadResult.Source)
+		cfg := loadResult.Config
 
 		msg := notifier.Message{
 			Title: notifyTitle,

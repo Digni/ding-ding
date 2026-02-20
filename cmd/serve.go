@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/Digni/ding-ding/internal/config"
 	"github.com/Digni/ding-ding/internal/server"
 	"github.com/spf13/cobra"
 )
@@ -24,10 +23,12 @@ Example:
   curl -X POST localhost:8228/notify -d '{"body":"Build done","agent":"claude"}'
   curl "localhost:8228/notify?message=done&agent=claude"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
+		loadResult, err := loadConfigForCommand()
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
+		printConfigSourceDetails(cmd, loadResult.Source)
+		cfg := loadResult.Config
 
 		if serveAddress != "" {
 			cfg.Server.Address = serveAddress
