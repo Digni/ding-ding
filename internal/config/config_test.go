@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -159,5 +161,100 @@ func TestLoadFromBytes_FallbackPolicy(t *testing.T) {
 				t.Errorf("FallbackPolicy: got %q, want %q", cfg.Idle.FallbackPolicy, tt.wantPolicy)
 			}
 		})
+	}
+}
+
+func TestLoadWithOptions_PreferredParseErrorDoesNotFallback(t *testing.T) {
+	tempDir := t.TempDir()
+	preferredPath := filepath.Join(tempDir, "preferred.yaml")
+	legacyPath := filepath.Join(tempDir, "legacy.yaml")
+
+	if err := os.WriteFile(preferredPath, []byte(":\tinvalid: yaml: {"), 0o644); err != nil {
+		t.Fatalf("write preferred config: %v", err)
+	}
+
+	legacyYAML := []byte("server:\n  address: 127.0.0.1:9999\n")
+	if err := os.WriteFile(legacyPath, legacyYAML, 0o644); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+
+	_, err := LoadWithOptions(LoadOptions{Resolve: ResolveOptions{
+		GOOS:          "darwin",
+		PreferredPath: preferredPath,
+		LegacyPath:    legacyPath,
+	}})
+	if err == nil {
+		t.Fatal("expected parse error, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Fatalf("expected parse error, got %v", err)
+	}
+}
+
+func TestLoadWithOptions_PreferredValidationErrorDoesNotFallback(t *testing.T) {
+	tempDir := t.TempDir()
+	preferredPath := filepath.Join(tempDir, "preferred.yaml")
+	legacyPath := filepath.Join(tempDir, "legacy.yaml")
+
+	preferredYAML := []byte("webhook:\n  enabled: true\n")
+	if err := os.WriteFile(preferredPath, preferredYAML, 0o644); err != nil {
+		t.Fatalf("write preferred config: %v", err)
+	}
+
+	legacyYAML := []byte("webhook:\n  enabled: true\n  url: https://example.test/hook\n")
+	if err := os.WriteFile(legacyPath, legacyYAML, 0o644); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+
+	_, err := LoadWithOptions(LoadOptions{Resolve: ResolveOptions{
+		GOOS:          "darwin",
+		PreferredPath: preferredPath,
+		LegacyPath:    legacyPath,
+	}})
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), "validate") {
+		t.Fatalf("expected validate error, got %v", err)
+	}
+}
+
+func TestLoadWithOptions_ExplicitPathFailureWarnsAndFallsBack(t *testing.T) {
+	tempDir := t.TempDir()
+	preferredPath := filepath.Join(tempDir, "preferred.yaml")
+
+	preferredYAML := []byte("server:\n  address: 127.0.0.1:8444\n")
+	if err := os.WriteFile(preferredPath, preferredYAML, 0o644); err != nil {
+		t.Fatalf("write preferred config: %v", err)
+	}
+
+	warnings := make([]string, 0, 1)
+	result, err := LoadWithOptions(LoadOptions{
+		ExplicitPath: filepath.Join(tempDir, "missing-explicit.yaml"),
+		Warn: func(message string) {
+			warnings = append(warnings, message)
+		},
+		Resolve: ResolveOptions{
+			GOOS:          "darwin",
+			PreferredPath: preferredPath,
+			LegacyPath:    filepath.Join(tempDir, "legacy.yaml"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(warnings) != 1 {
+		t.Fatalf("got %d warnings, want 1", len(warnings))
+	}
+	if !strings.Contains(warnings[0], "missing-explicit.yaml") {
+		t.Fatalf("warning missing explicit path details: %q", warnings[0])
+	}
+
+	if result.Source.Path != preferredPath {
+		t.Fatalf("resolved path = %q, want %q", result.Source.Path, preferredPath)
+	}
+	if result.Config.Server.Address != "127.0.0.1:8444" {
+		t.Fatalf("server.address = %q, want %q", result.Config.Server.Address, "127.0.0.1:8444")
 	}
 }
