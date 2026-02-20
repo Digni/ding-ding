@@ -22,6 +22,32 @@ type Message struct {
 	PID   int    `json:"pid,omitempty"`   // caller's PID for focus detection in server mode
 }
 
+// resolveIdleState determines whether the user is idle using the configured
+// threshold. If idle detection fails, FallbackPolicy governs the result:
+// "idle" treats the user as idle; anything else (including "active") treats
+// the user as active. Returns (userIdle, idleTime).
+func resolveIdleState(cfg config.Config) (userIdle bool, idleTime time.Duration) {
+	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
+	if threshold == 0 {
+		log.Printf("warning: idle.threshold_seconds is 0, push notifications will never trigger based on idle state")
+		return false, 0
+	}
+
+	dur, err := idle.Duration()
+	if err != nil {
+		switch cfg.Idle.FallbackPolicy {
+		case "idle":
+			log.Printf("idle detection failed (%v), fallback_policy=idle — treating as idle", err)
+			return true, 0
+		default:
+			log.Printf("idle detection failed (%v), fallback_policy=active — treating as active", err)
+			return false, 0
+		}
+	}
+
+	return dur >= threshold, dur
+}
+
 // Notify handles CLI invocations with 3-tier logic:
 //
 //	Active + terminal focused  → skip (user sees agent output directly)
@@ -32,15 +58,8 @@ func Notify(cfg config.Config, msg Message) error {
 		msg.Title = "ding ding!"
 	}
 
-	idleTime, idleErr := idle.Duration()
-	if idleErr != nil {
-		log.Printf("idle detection failed: %v", idleErr)
-	}
+	userIdle, idleTime := resolveIdleState(cfg)
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
-	if threshold == 0 {
-		log.Printf("warning: idle.threshold_seconds is 0, push notifications will never trigger based on idle state")
-	}
-	userIdle := idleErr == nil && threshold > 0 && idleTime >= threshold
 	focused := cfg.Notification.SuppressWhenFocused && focus.TerminalFocused()
 
 	// Tier 1: user is active and looking at the agent terminal — do nothing
@@ -74,15 +93,8 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 		msg.Title = "ding ding!"
 	}
 
-	idleTime, idleErr := idle.Duration()
-	if idleErr != nil {
-		log.Printf("idle detection failed: %v", idleErr)
-	}
+	userIdle, idleTime := resolveIdleState(cfg)
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
-	if threshold == 0 {
-		log.Printf("warning: idle.threshold_seconds is 0, push notifications will never trigger based on idle state")
-	}
-	userIdle := idleErr == nil && threshold > 0 && idleTime >= threshold
 
 	// If the caller sent a PID, we can check focus for their terminal
 	focused := false
