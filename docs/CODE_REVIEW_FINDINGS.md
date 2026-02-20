@@ -14,42 +14,42 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### C1: Windows PowerShell injection
 - **File:** `internal/notifier/system.go:18-26`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** `title` and `body` interpolated via `%s` into PowerShell script. Remotely exploitable via GET `/notify`.
 - **Fix:** XML-escape title and body before interpolation, or pass as separate PowerShell arguments.
 
 ### C2: macOS AppleScript injection
 - **File:** `internal/notifier/system.go:14-15`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** Go's `%q` is not valid AppleScript escaping. A body containing `"` breaks out of the AppleScript string.
 - **Fix:** Strip/replace double quotes, or pass values via `osascript` argv instead of embedding in script.
 
 ### C3: HTTP server binds to all interfaces
 - **File:** `internal/config/config.go:80`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** Default address `:8228` exposes server to network. Zero authentication.
 - **Fix:** Default to `127.0.0.1:8228`.
 
 ### C4: No HTTP server timeouts
 - **File:** `internal/server/server.go:72`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** `http.ListenAndServe` with no read/write/idle timeouts. Slow clients exhaust goroutines.
 - **Fix:** Use `&http.Server{}` with explicit timeouts.
 
 ### C5: No request body size limit
 - **File:** `internal/server/server.go:19`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** Unbounded `json.NewDecoder(r.Body)`. A 1GB POST exhausts memory.
 - **Fix:** `r.Body = http.MaxBytesReader(w, r.Body, 1<<16)` before decoding.
 
 ### C6: No HTTP client timeouts
 - **File:** `internal/notifier/ntfy.go:33`, `discord.go:25`, `webhook.go:29`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** All outbound senders use `http.DefaultClient` (no timeout). Hung backend blocks goroutine forever. `pushAll` calls serially so latency compounds.
 - **Fix:** Define shared `&http.Client{Timeout: 15 * time.Second}` in notifier package.
 
@@ -60,14 +60,14 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### W1: `--version` always prints "dev"
 - **File:** `cmd/root.go:15`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** `rootCmd` struct literal captures `Version` at package init time (always `"dev"`).
 - **Fix:** Set `rootCmd.Version = Version` inside `Execute()` before `rootCmd.Execute()`.
 
 ### W2: `isAncestor` duplicated across 3 platform files
 - **File:** `focus_darwin.go`, `focus_linux.go`, `focus_windows.go`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** Identical function in all three files. No max-depth guard.
 - **Fix:** Extract to `focus_common.go`. Add `const maxDepth = 32` guard.
 
@@ -88,21 +88,21 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### W5: `threshold_seconds: 0` silently disables idle detection
 - **File:** `internal/notifier/notifier.go:33`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** `threshold > 0 && idleTime >= threshold` means 0 = never push (not "always push").
 - **Fix:** Validate at config load time. Log warning or treat 0 as "always idle".
 
 ### W6: stdin read truncation
 - **File:** `cmd/notify.go:53-58`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** `os.Stdin.Read(buf)` reads at most 4096 bytes, silently truncates. Error discarded.
 - **Fix:** Use `io.ReadAll` with a size limit, surface truncation warning.
 
 ### W7: Error details leaked in HTTP responses
 - **File:** `internal/server/server.go:19`, `server.go:31`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** JSON decode errors and push failures returned verbatim to clients.
 - **Fix:** Return generic error messages. Log details server-side.
 
@@ -116,7 +116,7 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### W9: Inconsistent Discord sender pattern
 - **File:** `internal/notifier/discord.go:25`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Issue:** Uses `http.Post` convenience function while ntfy/webhook use `http.NewRequest` + `client.Do`.
 - **Fix:** Align to `http.NewRequest` + shared client pattern.
 
@@ -127,13 +127,13 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### I1: Use `errors.Join` for error aggregation
 - **File:** `internal/notifier/notifier.go:124`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Fix:** Replace `fmt.Errorf("push errors: %v", errs)` with `errors.Join(errs...)`.
 
 ### I2: Use `bytes.NewReader` instead of `strings.NewReader`
 - **File:** `internal/notifier/discord.go:25`, `webhook.go:23`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Fix:** `bytes.NewReader(payload)` avoids `[]byte→string→[]byte` copy.
 
 ### I3: Extract shared 3-tier dispatch logic
@@ -145,7 +145,7 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### I4: `config.Init()` prints to stdout
 - **File:** `internal/config/config.go:157`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Fix:** Return path, let `cmd/` layer print.
 
 ### I5: Replace `bash -c` pipeline for idle detection
@@ -157,7 +157,7 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### I6: Set `Content-Type` on JSON response
 - **File:** `internal/server/server.go:38`
 - **Effort:** easy
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Fix:** `w.Header().Set("Content-Type", "application/json")` before writing response.
 
 ### I7: Add tests
