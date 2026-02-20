@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Digni/ding-ding/internal/logging"
 	"github.com/Digni/ding-ding/internal/notifier"
 	"github.com/spf13/cobra"
 )
@@ -30,6 +31,9 @@ var (
 	testLocal     bool
 )
 
+var notifyWithOptions = notifier.NotifyWithOptions
+var notifyLoadConfig = loadConfigForCommand
+
 var notifyCmd = &cobra.Command{
 	Use:   "notify [message]",
 	Short: "Send a completion notification",
@@ -51,12 +55,13 @@ when focus suppression would normally silence it.`,
 			return fmt.Errorf("invalid flag -test-local; use --test-local")
 		}
 
-		loadResult, err := loadConfigForCommand()
+		loadResult, err := notifyLoadConfig()
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
 		printConfigSourceDetails(cmd, loadResult.Source)
 		cfg := loadResult.Config
+		initializeCommandLogging(cmd.ErrOrStderr(), cfg.Logging, logging.RoleCLI)
 
 		msg := notifier.Message{
 			Title: notifyTitle,
@@ -84,7 +89,7 @@ when focus suppression would normally silence it.`,
 			msg.Body = "Agent task completed"
 		}
 
-		err = notifier.NotifyWithOptions(cfg, msg, notifier.NotifyOptions{
+		err = notifyWithOptions(cfg, msg, notifier.NotifyOptions{
 			ForcePush:  forcePush,
 			ForceLocal: testLocal,
 		})
