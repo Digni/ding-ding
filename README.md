@@ -213,6 +213,7 @@ webhook:
 # Send push notifications only when idle for 5+ minutes
 idle:
   threshold_seconds: 300
+  fallback_policy: "active" # active or idle
 
 # Skip system notification when the agent terminal is focused
 notification:
@@ -220,7 +221,7 @@ notification:
 
 # HTTP server
 server:
-  address: ":8228"
+  address: "127.0.0.1:8228"
 ```
 
 ## Notification Flow

@@ -160,8 +160,8 @@ func TestPostNotify_OversizeBody(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", resp.StatusCode)
 	}
 }
 

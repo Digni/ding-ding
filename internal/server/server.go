@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"time"
@@ -18,6 +19,11 @@ func NewMux(cfg config.Config) *http.ServeMux {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 		var msg notifier.Message
 		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
