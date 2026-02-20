@@ -164,7 +164,12 @@ import type { Plugin } from "@opencode-ai/plugin"
 export const DingDing: Plugin = async ({ $ }) => ({
   event: async ({ event }) => {
     if (event.type === "session.idle") {
-      await $`curl -s localhost:8228/notify -d '{"agent":"opencode","body":"Task finished","pid":'$$'}'`
+      const payload = JSON.stringify({
+        agent: "opencode",
+        body: "Task finished",
+        pid: process.pid,
+      })
+      await $`curl -s localhost:8228/notify -H "Content-Type: application/json" -d ${payload}`
     }
   },
 })
