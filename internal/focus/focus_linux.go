@@ -43,21 +43,6 @@ func focusedWindowPID() (int, bool) {
 	return 0, false
 }
 
-// isAncestor checks whether ancestorPID is in the process tree above pid.
-func isAncestor(ancestorPID, pid int) bool {
-	for pid > 1 {
-		if pid == ancestorPID {
-			return true
-		}
-		ppid, err := parentPID(pid)
-		if err != nil || ppid == pid {
-			return false
-		}
-		pid = ppid
-	}
-	return false
-}
-
 func parentPID(pid int) (int, error) {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
