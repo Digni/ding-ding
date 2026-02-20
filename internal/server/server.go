@@ -11,6 +11,23 @@ import (
 	"github.com/Digni/ding-ding/internal/notifier"
 )
 
+type errorResponse struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("failed to write json response: %v", err)
+	}
+}
+
+func writeJSONError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, errorResponse{Code: code, Message: message})
+}
+
 // NewMux builds the HTTP handler for ding-ding's server endpoints.
 func NewMux(cfg config.Config) *http.ServeMux {
 	mux := http.NewServeMux()
@@ -21,15 +38,15 @@ func NewMux(cfg config.Config) *http.ServeMux {
 		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
 			var maxBytesErr *http.MaxBytesError
 			if errors.As(err, &maxBytesErr) {
-				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				writeJSONError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body too large")
 				return
 			}
-			http.Error(w, "invalid request body", http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 			return
 		}
 
 		if msg.Body == "" && msg.Title == "" {
-			http.Error(w, "title or body required", http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "missing_content", "title or body required")
 			return
 		}
 
@@ -37,13 +54,11 @@ func NewMux(cfg config.Config) *http.ServeMux {
 
 		if err := notifier.NotifyRemote(cfg, msg); err != nil {
 			log.Printf("notification error: %v", err)
-			http.Error(w, "notification delivery failed", http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "notification_delivery_failed", "notification delivery failed")
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}` + "\n"))
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	// Simple GET endpoint for quick curl usage
@@ -63,19 +78,16 @@ func NewMux(cfg config.Config) *http.ServeMux {
 
 		if err := notifier.NotifyRemote(cfg, msg); err != nil {
 			log.Printf("notification error: %v", err)
-			http.Error(w, "notification delivery failed", http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "notification_delivery_failed", "notification delivery failed")
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}` + "\n"))
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}` + "\n"))
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	return mux

@@ -11,6 +11,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type notifyDeliveryError struct {
+	err error
+}
+
+func (e *notifyDeliveryError) Error() string {
+	return e.err.Error()
+}
+
+func (e *notifyDeliveryError) Unwrap() error {
+	return e.err
+}
+
 var (
 	notifyTitle   string
 	notifyMessage string
@@ -71,10 +83,15 @@ when focus suppression would normally silence it.`,
 			msg.Body = "Agent task completed"
 		}
 
-		return notifier.NotifyWithOptions(cfg, msg, notifier.NotifyOptions{
+		err = notifier.NotifyWithOptions(cfg, msg, notifier.NotifyOptions{
 			ForcePush:  forcePush,
 			ForceLocal: testLocal,
 		})
+		if err != nil {
+			return &notifyDeliveryError{err: err}
+		}
+
+		return nil
 	},
 }
 

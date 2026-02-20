@@ -52,10 +52,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Validate
-        run: |
-          go vet ./...
-          go test ./...
-          go build .
+        run: bash scripts/quality-gate.sh
 
       - name: Build binary
         env:

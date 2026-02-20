@@ -19,19 +19,19 @@ var (
 
 const processQueryInfo = 0x0400
 
-func processInFocusedTerminal(pid int) bool {
+func processInFocusedTerminalState(pid int) (bool, bool) {
 	hwnd, _, _ := getForegroundWindow.Call()
 	if hwnd == 0 {
-		return false
+		return false, false
 	}
 
 	var focusedPID uint32
 	getWindowThreadPID.Call(hwnd, uintptr(unsafe.Pointer(&focusedPID)))
 	if focusedPID == 0 {
-		return false
+		return false, false
 	}
 
-	return isAncestor(int(focusedPID), pid)
+	return isAncestor(int(focusedPID), pid), true
 }
 
 type processBasicInfo struct {

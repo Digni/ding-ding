@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Digni/ding-ding/internal/config"
+	"github.com/Digni/ding-ding/internal/focus"
 )
 
 // stubState records what happened during a test's systemNotify calls.
@@ -24,12 +25,18 @@ type stubState struct {
 // setupStubs replaces the package-level function vars with controllable stubs
 // and restores originals via t.Cleanup.
 func setupStubs(t *testing.T, idleDur time.Duration, idleErr error, focused bool) *stubState {
+	return setupStubsWithFocusState(t, idleDur, idleErr, focused, true)
+}
+
+func setupStubsWithFocusState(t *testing.T, idleDur time.Duration, idleErr error, focused bool, known bool) *stubState {
 	t.Helper()
 	state := &stubState{}
 
 	origIdle := IdleDurationFunc
 	origFocused := TerminalFocusedFunc
 	origProcess := ProcessInFocusedTerminalFunc
+	origFocusState := TerminalFocusStateFunc
+	origProcessState := ProcessFocusStateFunc
 	origSystem := SystemNotifyFunc
 	origHTTP := httpClient
 
@@ -37,6 +44,8 @@ func setupStubs(t *testing.T, idleDur time.Duration, idleErr error, focused bool
 		IdleDurationFunc = origIdle
 		TerminalFocusedFunc = origFocused
 		ProcessInFocusedTerminalFunc = origProcess
+		TerminalFocusStateFunc = origFocusState
+		ProcessFocusStateFunc = origProcessState
 		SystemNotifyFunc = origSystem
 		httpClient = origHTTP
 	})
@@ -44,6 +53,8 @@ func setupStubs(t *testing.T, idleDur time.Duration, idleErr error, focused bool
 	IdleDurationFunc = func() (time.Duration, error) { return idleDur, idleErr }
 	TerminalFocusedFunc = func() bool { return focused }
 	ProcessInFocusedTerminalFunc = func(pid int) bool { return focused }
+	TerminalFocusStateFunc = func() focus.State { return focus.State{Focused: focused, Known: known} }
+	ProcessFocusStateFunc = func(pid int) focus.State { return focus.State{Focused: focused, Known: known} }
 	SystemNotifyFunc = func(title, body string) error {
 		state.systemNotifyCalled = true
 		state.systemNotifyCalls++
@@ -96,8 +107,8 @@ func TestResolveIdleState_AtThreshold(t *testing.T) {
 	cfg := testConfig() // threshold=300s
 
 	idle, dur := resolveIdleState(cfg)
-	if !idle {
-		t.Error("expected userIdle=true when at threshold")
+	if idle {
+		t.Error("expected userIdle=false when at threshold")
 	}
 	if dur != 300*time.Second {
 		t.Errorf("expected idleTime=300s, got %s", dur)
@@ -213,6 +224,19 @@ func TestNotify_SuppressFocusDisabled(t *testing.T) {
 	// Should reach Tier 2 (active + focus=false → system notify called)
 	if !state.systemNotifyCalled {
 		t.Error("expected systemNotify called when SuppressWhenFocused=false")
+	}
+}
+
+func TestNotify_ActiveUncertainFocus_TreatedAsFocused(t *testing.T) {
+	state := setupStubsWithFocusState(t, 10*time.Second, nil, false, false)
+	cfg := testConfig()
+
+	err := Notify(cfg, Message{Title: "test", Body: "body"})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if state.systemNotifyCalled {
+		t.Error("expected systemNotify NOT called when focus is uncertain")
 	}
 }
 
@@ -528,6 +552,19 @@ func TestNotifyRemote_SuppressFocusDisabled(t *testing.T) {
 	}
 }
 
+func TestNotifyRemote_ActiveUncertainFocusWithPID_TreatedAsFocused(t *testing.T) {
+	state := setupStubsWithFocusState(t, 10*time.Second, nil, false, false)
+	cfg := testConfig()
+
+	err := NotifyRemote(cfg, Message{Title: "test", Body: "body", PID: 1234})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if state.systemNotifyCalled {
+		t.Error("expected systemNotify NOT called when remote focus is uncertain")
+	}
+}
+
 func TestNotifyRemote_DefaultTitle(t *testing.T) {
 	state := setupStubs(t, 10*time.Second, nil, false)
 	cfg := testConfig()
@@ -556,9 +593,9 @@ func TestNotifyRemote_NoPID_DoesNotCallProcessFocusCheck(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			processFocusCalled := false
-			ProcessInFocusedTerminalFunc = func(pid int) bool {
+			ProcessFocusStateFunc = func(pid int) focus.State {
 				processFocusCalled = true
-				return true
+				return focus.State{Focused: true, Known: true}
 			}
 
 			state.systemNotifyCalled = false

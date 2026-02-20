@@ -266,6 +266,23 @@ Focused  Unfocused    Idle
 | Focus detection | `xdotool` / `kdotool` | `osascript` | `GetForegroundWindow` |
 | ntfy / Discord / Webhook | ✓ | ✓ | ✓ |
 
+## Maintainer Quality Gate
+
+Before merging, run the canonical quality gate:
+
+```bash
+make quality
+```
+
+The gate is strict and merge-blocking. It runs:
+
+- `go test ./...`
+- `go vet ./...`
+- `gofmt -l .` (check-only; does not auto-format)
+- a static guardrail that blocks `log.Fatal`, `os.Exit`, and `panic(` in `internal/`
+
+Only a final `QUALITY GATE PASS` should be treated as a valid pre-merge signal.
+
 ## License
 
 MIT

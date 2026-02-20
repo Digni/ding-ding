@@ -1,6 +1,9 @@
 package cmd
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestHasMistypedTestLocalArg(t *testing.T) {
 	tests := []struct {
@@ -42,5 +45,26 @@ func TestHasMistypedTestLocalArg(t *testing.T) {
 				t.Fatalf("hasMistypedTestLocalArg(%v) = %v, want %v", tt.argv, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsBestEffortNotifyError(t *testing.T) {
+	if isBestEffortNotifyError(nil) {
+		t.Fatal("expected nil error to be non-best-effort")
+	}
+
+	deliveryErr := &notifyDeliveryError{err: errors.New("push backend unavailable")}
+	if !isBestEffortNotifyError(deliveryErr) {
+		t.Fatal("expected notifyDeliveryError to be best-effort")
+	}
+
+	wrapped := errors.New("wrap: " + deliveryErr.Error())
+	if isBestEffortNotifyError(wrapped) {
+		t.Fatal("expected plain wrapped string error to be non-best-effort")
+	}
+
+	wrappedTyped := errors.Join(errors.New("prefix"), deliveryErr)
+	if !isBestEffortNotifyError(wrappedTyped) {
+		t.Fatal("expected joined typed delivery error to be best-effort")
 	}
 }

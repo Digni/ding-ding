@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -28,7 +29,17 @@ Usage:
 func Execute() {
 	rootCmd.Version = Version
 	if err := rootCmd.Execute(); err != nil {
+		if isBestEffortNotifyError(err) {
+			fmt.Fprintf(os.Stderr, "notification delivery failed: %v\n", err)
+			return
+		}
+
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func isBestEffortNotifyError(err error) bool {
+	var deliveryErr *notifyDeliveryError
+	return errors.As(err, &deliveryErr)
 }

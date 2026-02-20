@@ -21,6 +21,8 @@ var errForcePushNoBackends = errors.New("force push requested but no push backen
 var IdleDurationFunc = idle.Duration
 var TerminalFocusedFunc = focus.TerminalFocused
 var ProcessInFocusedTerminalFunc = focus.ProcessInFocusedTerminal
+var TerminalFocusStateFunc = focus.TerminalFocusState
+var ProcessFocusStateFunc = focus.ProcessFocusState
 var SystemNotifyFunc = systemNotify
 
 // Message represents a notification to be sent.
@@ -63,7 +65,7 @@ func resolveIdleState(cfg config.Config) (userIdle bool, idleTime time.Duration)
 		}
 	}
 
-	return dur >= threshold, dur
+	return dur > threshold, dur
 }
 
 // Notify handles CLI invocations with 3-tier logic:
@@ -82,7 +84,11 @@ func NotifyWithOptions(cfg config.Config, msg Message, opts NotifyOptions) error
 	}
 
 	userIdle, idleTime := resolveIdleState(cfg)
-	focused := cfg.Notification.SuppressWhenFocused && TerminalFocusedFunc()
+	focused := false
+	if cfg.Notification.SuppressWhenFocused {
+		focusState := TerminalFocusStateFunc()
+		focused = focusState.Focused || !focusState.Known
+	}
 
 	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, opts, func() {
 		log.Printf("terminal focused, user active (idle %s) — suppressing notification", idleTime)
@@ -103,7 +109,8 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 	// If the caller sent a PID, we can check focus for their terminal
 	focused := false
 	if msg.PID > 0 && cfg.Notification.SuppressWhenFocused {
-		focused = ProcessInFocusedTerminalFunc(msg.PID)
+		focusState := ProcessFocusStateFunc(msg.PID)
+		focused = focusState.Focused || !focusState.Known
 	}
 
 	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, NotifyOptions{}, func() {

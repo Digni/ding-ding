@@ -8,21 +8,21 @@ import (
 	"strings"
 )
 
-func processInFocusedTerminal(pid int) bool {
+func processInFocusedTerminalState(pid int) (bool, bool) {
 	// Get PID of the frontmost application
 	out, err := exec.Command("osascript", "-e",
 		`tell application "System Events" to get unix id of first process whose frontmost is true`,
 	).Output()
 	if err != nil {
-		return false
+		return false, false
 	}
 
 	focusedPID, err := strconv.Atoi(strings.TrimSpace(string(out)))
 	if err != nil || focusedPID <= 0 {
-		return false
+		return false, false
 	}
 
-	return isAncestor(focusedPID, pid)
+	return isAncestor(focusedPID, pid), true
 }
 
 func parentPID(pid int) (int, error) {
