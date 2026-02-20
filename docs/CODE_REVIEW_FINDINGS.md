@@ -151,7 +151,7 @@ Multi-agent code review performed 2026-02-20. All findings below are tracked for
 ### I5: Replace `bash -c` pipeline for idle detection
 - **File:** `internal/idle/idle_darwin.go:14`
 - **Effort:** medium
-- **Status:** `[ ]`
+- **Status:** `[x]`
 - **Fix:** Parse `ioreg` output in Go directly. Eliminates bash/awk dependency.
 
 ### I6: Set `Content-Type` on JSON response
