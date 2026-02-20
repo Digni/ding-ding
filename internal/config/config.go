@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -38,7 +39,8 @@ type WebhookConfig struct {
 }
 
 type IdleConfig struct {
-	ThresholdSeconds int `yaml:"threshold_seconds"`
+	ThresholdSeconds int    `yaml:"threshold_seconds"`
+	FallbackPolicy   string `yaml:"fallback_policy"`
 }
 
 type NotificationConfig struct {
@@ -72,6 +74,7 @@ func DefaultConfig() Config {
 		},
 		Idle: IdleConfig{
 			ThresholdSeconds: 300,
+			FallbackPolicy:   "active",
 		},
 		Notification: NotificationConfig{
 			SuppressWhenFocused: true,
@@ -122,6 +125,16 @@ func Load() (Config, error) {
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
+	}
+
+	switch cfg.Idle.FallbackPolicy {
+	case "", "active", "idle":
+		if cfg.Idle.FallbackPolicy == "" {
+			cfg.Idle.FallbackPolicy = "active"
+		}
+	default:
+		log.Printf("warning: unrecognized idle.fallback_policy %q, using \"active\"", cfg.Idle.FallbackPolicy)
+		cfg.Idle.FallbackPolicy = "active"
 	}
 
 	return cfg, nil
