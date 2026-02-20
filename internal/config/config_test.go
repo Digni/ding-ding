@@ -59,6 +59,26 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Sound.Enabled != true {
 		t.Errorf("Sound.Enabled: got %v, want true", cfg.Sound.Enabled)
 	}
+
+	// Logging
+	if cfg.Logging.Enabled != false {
+		t.Errorf("Logging.Enabled: got %v, want false", cfg.Logging.Enabled)
+	}
+	if cfg.Logging.Level != "info" {
+		t.Errorf("Logging.Level: got %q, want %q", cfg.Logging.Level, "info")
+	}
+	if cfg.Logging.Dir != "logs" {
+		t.Errorf("Logging.Dir: got %q, want %q", cfg.Logging.Dir, "logs")
+	}
+	if cfg.Logging.MaxSizeMB != 20 {
+		t.Errorf("Logging.MaxSizeMB: got %d, want 20", cfg.Logging.MaxSizeMB)
+	}
+	if cfg.Logging.MaxBackups != 7 {
+		t.Errorf("Logging.MaxBackups: got %d, want 7", cfg.Logging.MaxBackups)
+	}
+	if cfg.Logging.Compress != false {
+		t.Errorf("Logging.Compress: got %v, want false", cfg.Logging.Compress)
+	}
 }
 
 func TestLoadFromBytes_EmptyData(t *testing.T) {
@@ -256,5 +276,72 @@ func TestLoadWithOptions_ExplicitPathFailureWarnsAndFallsBack(t *testing.T) {
 	}
 	if result.Config.Server.Address != "127.0.0.1:8444" {
 		t.Fatalf("server.address = %q, want %q", result.Config.Server.Address, "127.0.0.1:8444")
+	}
+}
+
+func TestValidate_AcceptsLoggingLevels(t *testing.T) {
+	tests := []string{"error", "warn", "info", "debug"}
+
+	for _, level := range tests {
+		t.Run(level, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Logging.Level = level
+
+			if err := Validate(cfg); err != nil {
+				t.Fatalf("Validate() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestValidate_RejectsInvalidLoggingLevel(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Logging.Level = "verbose"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "logging.level") {
+		t.Fatalf("error %q does not contain logging.level", err)
+	}
+}
+
+func TestValidate_RejectsNonPositiveLoggingRotationBounds(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{
+			name: "max size mb is zero",
+			cfg: func() Config {
+				cfg := DefaultConfig()
+				cfg.Logging.MaxSizeMB = 0
+				return cfg
+			}(),
+			want: "logging.max_size_mb",
+		},
+		{
+			name: "max backups is negative",
+			cfg: func() Config {
+				cfg := DefaultConfig()
+				cfg.Logging.MaxBackups = -1
+				return cfg
+			}(),
+			want: "logging.max_backups",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.cfg)
+			if err == nil {
+				t.Fatal("Validate() error = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error %q does not contain %q", err, tt.want)
+			}
+		})
 	}
 }

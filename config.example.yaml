@@ -37,3 +37,12 @@ server:
 # Sound settings
 sound:
   enabled: true
+
+# Persistent structured logging
+logging:
+  enabled: false
+  level: "info"                    # error, warn, info, debug
+  dir: "logs"                      # directory for cli.log/server.log
+  max_size_mb: 20                   # rotate when file exceeds this size
+  max_backups: 7                    # number of rotated files to keep
+  compress: false                   # gzip rotated files

@@ -47,6 +47,7 @@ type Config struct {
 	Notification NotificationConfig `yaml:"notification"`
 	Server       ServerConfig       `yaml:"server"`
 	Sound        SoundConfig        `yaml:"sound"`
+	Logging      LoggingConfig      `yaml:"logging"`
 }
 
 type NtfyConfig struct {
@@ -87,6 +88,15 @@ type SoundConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+type LoggingConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Level      string `yaml:"level"`
+	Dir        string `yaml:"dir"`
+	MaxSizeMB  int    `yaml:"max_size_mb"`
+	MaxBackups int    `yaml:"max_backups"`
+	Compress   bool   `yaml:"compress"`
+}
+
 func DefaultConfig() Config {
 	return Config{
 		Ntfy: NtfyConfig{
@@ -114,6 +124,14 @@ func DefaultConfig() Config {
 		},
 		Sound: SoundConfig{
 			Enabled: true,
+		},
+		Logging: LoggingConfig{
+			Enabled:    false,
+			Level:      "info",
+			Dir:        "logs",
+			MaxSizeMB:  20,
+			MaxBackups: 7,
+			Compress:   false,
 		},
 	}
 }
