@@ -10,8 +10,8 @@ import (
 	"github.com/Digni/ding-ding/internal/notifier"
 )
 
-// Start launches the HTTP server that agents can POST to.
-func Start(cfg config.Config) error {
+// NewMux builds the HTTP handler for ding-ding's server endpoints.
+func NewMux(cfg config.Config) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /notify", func(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +72,12 @@ func Start(cfg config.Config) error {
 		w.Write([]byte(`{"status":"ok"}` + "\n"))
 	})
 
+	return mux
+}
+
+// Start launches the HTTP server that agents can POST to.
+func Start(cfg config.Config) error {
+	mux := NewMux(cfg)
 	log.Printf("ding-ding server listening on %s", cfg.Server.Address)
 	srv := &http.Server{
 		Addr:         cfg.Server.Address,

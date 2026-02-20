@@ -14,6 +14,12 @@ import (
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
 
+// Test hooks — exported for cross-package test stubbing (internal/ boundary prevents public leakage).
+var IdleDurationFunc = idle.Duration
+var TerminalFocusedFunc = focus.TerminalFocused
+var ProcessInFocusedTerminalFunc = focus.ProcessInFocusedTerminal
+var SystemNotifyFunc = systemNotify
+
 // Message represents a notification to be sent.
 type Message struct {
 	Title string `json:"title"`
@@ -33,7 +39,7 @@ func resolveIdleState(cfg config.Config) (userIdle bool, idleTime time.Duration)
 		return false, 0
 	}
 
-	dur, err := idle.Duration()
+	dur, err := IdleDurationFunc()
 	if err != nil {
 		switch cfg.Idle.FallbackPolicy {
 		case "idle":
@@ -60,7 +66,7 @@ func Notify(cfg config.Config, msg Message) error {
 
 	userIdle, idleTime := resolveIdleState(cfg)
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
-	focused := cfg.Notification.SuppressWhenFocused && focus.TerminalFocused()
+	focused := cfg.Notification.SuppressWhenFocused && TerminalFocusedFunc()
 
 	// Tier 1: user is active and looking at the agent terminal — do nothing
 	if !userIdle && focused {
@@ -69,7 +75,7 @@ func Notify(cfg config.Config, msg Message) error {
 	}
 
 	// Tier 2 & 3: send system notification (user isn't looking at the terminal)
-	if err := systemNotify(msg.Title, msg.Body); err != nil {
+	if err := SystemNotifyFunc(msg.Title, msg.Body); err != nil {
 		log.Printf("system notification failed: %v", err)
 	}
 
@@ -99,7 +105,7 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 	// If the caller sent a PID, we can check focus for their terminal
 	focused := false
 	if msg.PID > 0 && cfg.Notification.SuppressWhenFocused {
-		focused = focus.ProcessInFocusedTerminal(msg.PID)
+		focused = ProcessInFocusedTerminalFunc(msg.PID)
 	}
 
 	if !userIdle && focused {
@@ -107,7 +113,7 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 		return nil
 	}
 
-	if err := systemNotify(msg.Title, msg.Body); err != nil {
+	if err := SystemNotifyFunc(msg.Title, msg.Body); err != nil {
 		log.Printf("system notification failed: %v", err)
 	}
 

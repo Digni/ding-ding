@@ -106,27 +106,12 @@ func ConfigPath() (string, error) {
 	return filepath.Join(dir, "config.yaml"), nil
 }
 
-// Load reads the config from disk, falling back to defaults.
-func Load() (Config, error) {
+// LoadFromBytes parses raw YAML config bytes, overlaying on defaults and validating.
+func LoadFromBytes(data []byte) (Config, error) {
 	cfg := DefaultConfig()
-
-	path, err := ConfigPath()
-	if err != nil {
-		return cfg, nil // return defaults if we can't determine path
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil // no config file, use defaults
-		}
-		return cfg, fmt.Errorf("read config: %w", err)
-	}
-
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
-
 	switch cfg.Idle.FallbackPolicy {
 	case "active", "idle":
 		// valid
@@ -134,8 +119,23 @@ func Load() (Config, error) {
 		log.Printf("warning: unrecognized idle.fallback_policy %q, using \"active\"", cfg.Idle.FallbackPolicy)
 		cfg.Idle.FallbackPolicy = "active"
 	}
-
 	return cfg, nil
+}
+
+// Load reads the config from disk, falling back to defaults.
+func Load() (Config, error) {
+	path, err := ConfigPath()
+	if err != nil {
+		return DefaultConfig(), nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return DefaultConfig(), nil
+		}
+		return Config{}, fmt.Errorf("read config: %w", err)
+	}
+	return LoadFromBytes(data)
 }
 
 // Init creates a default config file if one doesn't exist.
