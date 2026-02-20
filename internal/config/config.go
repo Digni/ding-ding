@@ -128,10 +128,8 @@ func Load() (Config, error) {
 	}
 
 	switch cfg.Idle.FallbackPolicy {
-	case "", "active", "idle":
-		if cfg.Idle.FallbackPolicy == "" {
-			cfg.Idle.FallbackPolicy = "active"
-		}
+	case "active", "idle":
+		// valid
 	default:
 		log.Printf("warning: unrecognized idle.fallback_policy %q, using \"active\"", cfg.Idle.FallbackPolicy)
 		cfg.Idle.FallbackPolicy = "active"
