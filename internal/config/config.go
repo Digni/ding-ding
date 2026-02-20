@@ -77,7 +77,7 @@ func DefaultConfig() Config {
 			SuppressWhenFocused: true,
 		},
 		Server: ServerConfig{
-			Address: ":8228",
+			Address: "127.0.0.1:8228",
 		},
 		Sound: SoundConfig{
 			Enabled: true,
