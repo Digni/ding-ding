@@ -32,12 +32,15 @@ func Notify(cfg config.Config, msg Message) error {
 		msg.Title = "ding ding!"
 	}
 
-	idleTime := idle.Duration()
+	idleTime, idleErr := idle.Duration()
+	if idleErr != nil {
+		log.Printf("idle detection failed: %v", idleErr)
+	}
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
 	if threshold == 0 {
 		log.Printf("warning: idle.threshold_seconds is 0, push notifications will never trigger based on idle state")
 	}
-	userIdle := threshold > 0 && idleTime >= threshold
+	userIdle := idleErr == nil && threshold > 0 && idleTime >= threshold
 	focused := cfg.Notification.SuppressWhenFocused && focus.TerminalFocused()
 
 	// Tier 1: user is active and looking at the agent terminal — do nothing
@@ -71,12 +74,15 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 		msg.Title = "ding ding!"
 	}
 
-	idleTime := idle.Duration()
+	idleTime, idleErr := idle.Duration()
+	if idleErr != nil {
+		log.Printf("idle detection failed: %v", idleErr)
+	}
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
 	if threshold == 0 {
 		log.Printf("warning: idle.threshold_seconds is 0, push notifications will never trigger based on idle state")
 	}
-	userIdle := threshold > 0 && idleTime >= threshold
+	userIdle := idleErr == nil && threshold > 0 && idleTime >= threshold
 
 	// If the caller sent a PID, we can check focus for their terminal
 	focused := false
