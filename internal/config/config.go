@@ -128,31 +128,30 @@ func Load() (Config, error) {
 }
 
 // Init creates a default config file if one doesn't exist.
-func Init() error {
+func Init() (string, error) {
 	path, err := ConfigPath()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("config already exists at %s", path)
+		return "", fmt.Errorf("config already exists at %s", path)
 	}
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
+		return "", fmt.Errorf("create config dir: %w", err)
 	}
 
 	cfg := DefaultConfig()
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
+		return "", fmt.Errorf("marshal config: %w", err)
 	}
 
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("write config: %w", err)
+		return "", fmt.Errorf("write config: %w", err)
 	}
 
-	fmt.Printf("Config created at %s\n", path)
-	return nil
+	return path, nil
 }

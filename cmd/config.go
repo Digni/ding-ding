@@ -16,7 +16,12 @@ var configInitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Create default config file",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return config.Init()
+		path, err := config.Init()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Config created at %s\n", path)
+		return nil
 	},
 }
 
