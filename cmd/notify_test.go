@@ -1,8 +1,16 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/Digni/ding-ding/internal/config"
+	"github.com/Digni/ding-ding/internal/logging"
+	"github.com/Digni/ding-ding/internal/notifier"
+	"github.com/spf13/cobra"
 )
 
 func TestHasMistypedTestLocalArg(t *testing.T) {
@@ -66,5 +74,111 @@ func TestIsBestEffortNotifyError(t *testing.T) {
 	wrappedTyped := errors.Join(errors.New("prefix"), deliveryErr)
 	if !isBestEffortNotifyError(wrappedTyped) {
 		t.Fatal("expected joined typed delivery error to be best-effort")
+	}
+}
+
+func TestNotifyRunE_InitializesLoggingBeforeDispatch(t *testing.T) {
+	origBootstrap := commandLoggingBootstrap
+	origNotifyWithOptions := notifyWithOptions
+	origNotifyLoadConfig := notifyLoadConfig
+	defer func() {
+		commandLoggingBootstrap = origBootstrap
+		notifyWithOptions = origNotifyWithOptions
+		notifyLoadConfig = origNotifyLoadConfig
+	}()
+
+	notifyTitle = ""
+	notifyMessage = ""
+	notifyAgent = ""
+	forcePush = false
+	testLocal = false
+	notifyLoadConfig = func() (config.LoadResult, error) {
+		cfg := config.DefaultConfig()
+		cfg.Logging.Level = "debug"
+		return config.LoadResult{Config: cfg}, nil
+	}
+
+	var callOrder []string
+	commandLoggingBootstrap = func(cfg config.LoggingConfig, role logging.Role) error {
+		if role != logging.RoleCLI {
+			t.Fatalf("role = %q, want %q", role, logging.RoleCLI)
+		}
+		if cfg.Level != "debug" {
+			t.Fatalf("logging level = %q, want %q", cfg.Level, "debug")
+		}
+		callOrder = append(callOrder, "bootstrap")
+		return nil
+	}
+	notifyWithOptions = func(cfg config.Config, msg notifier.Message, opts notifier.NotifyOptions) error {
+		callOrder = append(callOrder, "notify")
+		if msg.Body != "hello world" {
+			t.Fatalf("msg.Body = %q, want %q", msg.Body, "hello world")
+		}
+		return nil
+	}
+
+	origArgs := os.Args
+	os.Args = []string{"ding-ding", "notify"}
+	defer func() { os.Args = origArgs }()
+
+	cmd := &cobra.Command{}
+	if err := notifyCmd.RunE(cmd, []string{"hello", "world"}); err != nil {
+		t.Fatalf("RunE returned error: %v", err)
+	}
+
+	if len(callOrder) != 2 {
+		t.Fatalf("call count = %d, want 2", len(callOrder))
+	}
+	if callOrder[0] != "bootstrap" || callOrder[1] != "notify" {
+		t.Fatalf("call order = %v, want [bootstrap notify]", callOrder)
+	}
+}
+
+func TestNotifyRunE_ContinuesWhenLoggingBootstrapFails(t *testing.T) {
+	origBootstrap := commandLoggingBootstrap
+	origNotifyWithOptions := notifyWithOptions
+	origNotifyLoadConfig := notifyLoadConfig
+	defer func() {
+		commandLoggingBootstrap = origBootstrap
+		notifyWithOptions = origNotifyWithOptions
+		notifyLoadConfig = origNotifyLoadConfig
+	}()
+
+	notifyTitle = ""
+	notifyMessage = ""
+	notifyAgent = ""
+	forcePush = false
+	testLocal = false
+	notifyLoadConfig = func() (config.LoadResult, error) {
+		cfg := config.DefaultConfig()
+		return config.LoadResult{Config: cfg}, nil
+	}
+
+	commandLoggingBootstrap = func(config.LoggingConfig, logging.Role) error {
+		return errors.New("sink init failed")
+	}
+
+	notifyCalled := false
+	notifyWithOptions = func(_ config.Config, _ notifier.Message, _ notifier.NotifyOptions) error {
+		notifyCalled = true
+		return nil
+	}
+
+	origArgs := os.Args
+	os.Args = []string{"ding-ding", "notify"}
+	defer func() { os.Args = origArgs }()
+
+	var stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&stderr)
+
+	if err := notifyCmd.RunE(cmd, []string{"hello"}); err != nil {
+		t.Fatalf("RunE returned error: %v", err)
+	}
+	if !notifyCalled {
+		t.Fatal("expected notifier to be called despite bootstrap failure")
+	}
+	if !strings.Contains(stderr.String(), "warning: unable to initialize persistent logging") {
+		t.Fatalf("stderr %q does not contain bootstrap warning", stderr.String())
 	}
 }
