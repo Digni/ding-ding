@@ -22,15 +22,11 @@ type errorPayload struct {
 	Message string `json:"message"`
 }
 
-func captureServerLogs(t *testing.T) *bytes.Buffer {
+func captureServerLogs(t *testing.T) (*bytes.Buffer, *slog.Logger) {
 	t.Helper()
-	previous := slog.Default()
 	var out bytes.Buffer
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&out, nil)))
-	t.Cleanup(func() {
-		slog.SetDefault(previous)
-	})
-	return &out
+	logger := slog.New(slog.NewJSONHandler(&out, nil))
+	return &out, logger
 }
 
 func parseLogRecords(t *testing.T, raw string) []map[string]any {
@@ -80,7 +76,7 @@ func decodeErrorPayload(t *testing.T, resp *http.Response) errorPayload {
 	return payload
 }
 
-func setupTestServer(t *testing.T) *httptest.Server {
+func setupTestServer(t *testing.T, logger *slog.Logger) *httptest.Server {
 	t.Helper()
 	cfg := config.DefaultConfig()
 
@@ -103,14 +99,14 @@ func setupTestServer(t *testing.T) *httptest.Server {
 	notifier.ProcessInFocusedTerminalFunc = func(pid int) bool { return false }
 	notifier.SystemNotifyFunc = func(title, body string) error { return nil }
 
-	mux := server.NewMux(cfg)
+	mux := server.NewMux(cfg, logger)
 	return httptest.NewServer(mux)
 }
 
 // --- POST /notify ---
 
 func TestPostNotify_ValidJSON(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Post(
@@ -134,7 +130,7 @@ func TestPostNotify_ValidJSON(t *testing.T) {
 }
 
 func TestPostNotify_TitleOnly(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Post(
@@ -153,7 +149,7 @@ func TestPostNotify_TitleOnly(t *testing.T) {
 }
 
 func TestPostNotify_BodyOnly(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Post(
@@ -172,7 +168,7 @@ func TestPostNotify_BodyOnly(t *testing.T) {
 }
 
 func TestPostNotify_EmptyTitleAndBody(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Post(
@@ -196,7 +192,7 @@ func TestPostNotify_EmptyTitleAndBody(t *testing.T) {
 }
 
 func TestPostNotify_InvalidJSON(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Post(
@@ -220,7 +216,7 @@ func TestPostNotify_InvalidJSON(t *testing.T) {
 }
 
 func TestPostNotify_OversizeBody(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	// Build a JSON payload larger than 64KB
@@ -276,7 +272,7 @@ func TestPostNotify_DeliveryFailureStructuredJSON(t *testing.T) {
 	notifier.ProcessFocusStateFunc = func(pid int) focus.State { return focus.State{Focused: false, Known: true} }
 	notifier.SystemNotifyFunc = func(title, body string) error { return nil }
 
-	ts := httptest.NewServer(server.NewMux(cfg))
+	ts := httptest.NewServer(server.NewMux(cfg, slog.Default()))
 	defer ts.Close()
 
 	resp, err := ts.Client().Post(
@@ -300,8 +296,8 @@ func TestPostNotify_DeliveryFailureStructuredJSON(t *testing.T) {
 }
 
 func TestPostNotify_LogsCorrelationAndRedactsPayload(t *testing.T) {
-	logs := captureServerLogs(t)
-	ts := setupTestServer(t)
+	logs, logger := captureServerLogs(t)
+	ts := setupTestServer(t, logger)
 	defer ts.Close()
 
 	secret := "raw-super-secret-token"
@@ -344,8 +340,8 @@ func TestPostNotify_LogsCorrelationAndRedactsPayload(t *testing.T) {
 }
 
 func TestGetNotify_LogsPayloadMetadataOnly(t *testing.T) {
-	logs := captureServerLogs(t)
-	ts := setupTestServer(t)
+	logs, logger := captureServerLogs(t)
+	ts := setupTestServer(t, logger)
 	defer ts.Close()
 
 	resp, err := ts.Client().Get(ts.URL + "/notify?title=hello&message=secret-message-value&agent=claude")
@@ -378,7 +374,7 @@ func TestGetNotify_LogsPayloadMetadataOnly(t *testing.T) {
 // --- GET /notify ---
 
 func TestGetNotify_WithParams(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Get(ts.URL + "/notify?title=hello&message=world")
@@ -393,7 +389,7 @@ func TestGetNotify_WithParams(t *testing.T) {
 }
 
 func TestGetNotify_NoParams(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Get(ts.URL + "/notify")
@@ -408,7 +404,7 @@ func TestGetNotify_NoParams(t *testing.T) {
 }
 
 func TestGetNotify_TitleOnly(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Get(ts.URL + "/notify?title=hello")
@@ -425,7 +421,7 @@ func TestGetNotify_TitleOnly(t *testing.T) {
 // --- GET /health ---
 
 func TestHealth_Returns200(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Get(ts.URL + "/health")
@@ -452,7 +448,7 @@ func TestHealth_Returns200(t *testing.T) {
 // --- Routing ---
 
 func TestRouting_UnknownPath(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Get(ts.URL + "/unknown")
@@ -467,7 +463,7 @@ func TestRouting_UnknownPath(t *testing.T) {
 }
 
 func TestRouting_WrongMethod_Notify(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/notify", nil)
@@ -487,7 +483,7 @@ func TestRouting_WrongMethod_Notify(t *testing.T) {
 }
 
 func TestRouting_WrongMethod_Health(t *testing.T) {
-	ts := setupTestServer(t)
+	ts := setupTestServer(t, slog.Default())
 	defer ts.Close()
 
 	resp, err := ts.Client().Post(ts.URL+"/health", "application/json", strings.NewReader("{}"))

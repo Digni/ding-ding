@@ -78,12 +78,12 @@ func testConfig() config.Config {
 
 func captureDefaultLogger(t *testing.T) *bytes.Buffer {
 	t.Helper()
-	previous := slog.Default()
+	previous := DefaultLoggerFunc
 	var out bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&out, nil))
-	slog.SetDefault(logger)
+	DefaultLoggerFunc = func() *slog.Logger { return logger }
 	t.Cleanup(func() {
-		slog.SetDefault(previous)
+		DefaultLoggerFunc = previous
 	})
 	return &out
 }
@@ -124,7 +124,7 @@ func TestResolveIdleState_ZeroThreshold(t *testing.T) {
 	cfg := testConfig()
 	cfg.Idle.ThresholdSeconds = 0
 
-	idle, dur := resolveIdleState(cfg)
+	idle, dur := resolveIdleState(cfg, slog.Default())
 	if idle {
 		t.Error("expected userIdle=false for zero threshold")
 	}
@@ -137,7 +137,7 @@ func TestResolveIdleState_BelowThreshold(t *testing.T) {
 	setupStubs(t, 100*time.Second, nil, false)
 	cfg := testConfig() // threshold=300s
 
-	idle, dur := resolveIdleState(cfg)
+	idle, dur := resolveIdleState(cfg, slog.Default())
 	if idle {
 		t.Error("expected userIdle=false when below threshold")
 	}
@@ -150,9 +150,9 @@ func TestResolveIdleState_AtThreshold(t *testing.T) {
 	setupStubs(t, 300*time.Second, nil, false)
 	cfg := testConfig() // threshold=300s
 
-	idle, dur := resolveIdleState(cfg)
-	if idle {
-		t.Error("expected userIdle=false when at threshold")
+	idle, dur := resolveIdleState(cfg, slog.Default())
+	if !idle {
+		t.Error("expected userIdle=true when at threshold (inclusive)")
 	}
 	if dur != 300*time.Second {
 		t.Errorf("expected idleTime=300s, got %s", dur)
@@ -163,7 +163,7 @@ func TestResolveIdleState_AboveThreshold(t *testing.T) {
 	setupStubs(t, 600*time.Second, nil, false)
 	cfg := testConfig() // threshold=300s
 
-	idle, dur := resolveIdleState(cfg)
+	idle, dur := resolveIdleState(cfg, slog.Default())
 	if !idle {
 		t.Error("expected userIdle=true when above threshold")
 	}
@@ -177,7 +177,7 @@ func TestResolveIdleState_ErrorFallbackActive(t *testing.T) {
 	cfg := testConfig()
 	cfg.Idle.FallbackPolicy = "active"
 
-	idle, dur := resolveIdleState(cfg)
+	idle, dur := resolveIdleState(cfg, slog.Default())
 	if idle {
 		t.Error("expected userIdle=false for fallback=active")
 	}
@@ -191,7 +191,7 @@ func TestResolveIdleState_ErrorFallbackIdle(t *testing.T) {
 	cfg := testConfig()
 	cfg.Idle.FallbackPolicy = "idle"
 
-	idle, dur := resolveIdleState(cfg)
+	idle, dur := resolveIdleState(cfg, slog.Default())
 	if !idle {
 		t.Error("expected userIdle=true for fallback=idle")
 	}

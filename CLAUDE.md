@@ -51,7 +51,7 @@ Uses Go 1.22+ pattern-matching (`"POST /notify"`, `"GET /notify"`, `"GET /health
 
 ### Dependencies
 
-Only two direct runtime dependencies: `github.com/spf13/cobra` (CLI) and `gopkg.in/yaml.v3` (config). All system interactions use `os/exec` or direct syscalls.
+Three direct runtime dependencies: `github.com/spf13/cobra` (CLI), `gopkg.in/yaml.v3` (config), and `gopkg.in/natefinch/lumberjack.v2` (log rotation). All system interactions use `os/exec` or direct syscalls.
 
 ## Commit Convention
 

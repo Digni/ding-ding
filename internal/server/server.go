@@ -31,14 +31,14 @@ func writeJSONError(w http.ResponseWriter, status int, code, message string) {
 }
 
 // NewMux builds the HTTP handler for ding-ding's server endpoints.
-func NewMux(cfg config.Config) *http.ServeMux {
+func NewMux(cfg config.Config, logger *slog.Logger) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /notify", func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		requestID := logging.EnsureRequestID(r.Header.Get(logging.RequestIDHeader))
 		operationID := logging.NewOperationID()
-		logger := slog.With("request_id", requestID, "operation_id", operationID, "method", r.Method, "path", r.URL.Path)
+		logger := logger.With("request_id", requestID, "operation_id", operationID, "method", r.Method, "path", r.URL.Path)
 		logger.Info("server.notify.request.started")
 
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
@@ -61,12 +61,6 @@ func NewMux(cfg config.Config) *http.ServeMux {
 
 		var msg notifier.Message
 		if err := json.Unmarshal(rawBody, &msg); err != nil {
-			var maxBytesErr *http.MaxBytesError
-			if errors.As(err, &maxBytesErr) {
-				logger.Warn("server.notify.request.rejected", append(payloadMeta.Fields(), "status", "error", "error_code", "request_too_large", "duration_ms", time.Since(start).Milliseconds())...)
-				writeJSONError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body too large")
-				return
-			}
 			logger.Warn("server.notify.request.rejected", append(payloadMeta.Fields(), "status", "error", "error_code", "invalid_request_body", "duration_ms", time.Since(start).Milliseconds(), "error", err)...)
 			writeJSONError(w, http.StatusBadRequest, "invalid_request_body", "invalid request body")
 			return
@@ -97,7 +91,7 @@ func NewMux(cfg config.Config) *http.ServeMux {
 		start := time.Now()
 		requestID := logging.EnsureRequestID(r.Header.Get(logging.RequestIDHeader))
 		operationID := logging.NewOperationID()
-		logger := slog.With("request_id", requestID, "operation_id", operationID, "method", r.Method, "path", r.URL.Path)
+		logger := logger.With("request_id", requestID, "operation_id", operationID, "method", r.Method, "path", r.URL.Path)
 		logger.Info("server.notify.request.started")
 
 		msg := notifier.Message{
@@ -137,7 +131,7 @@ func NewMux(cfg config.Config) *http.ServeMux {
 
 // Start launches the HTTP server that agents can POST to.
 func Start(cfg config.Config) error {
-	mux := NewMux(cfg)
+	mux := NewMux(cfg, slog.Default())
 	slog.Info("server.started", "address", cfg.Server.Address)
 	srv := &http.Server{
 		Addr:         cfg.Server.Address,

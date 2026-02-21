@@ -29,12 +29,12 @@ var configPathCmd = &cobra.Command{
 	Use:   "path",
 	Short: "Print config file path",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		loadResult, err := loadConfigForCommand()
+		source, err := config.ResolveConfigSource(config.ResolveOptions{})
 		if err != nil {
 			return err
 		}
 
-		path := loadResult.Source.Path
+		path := source.Path
 		if path == "" {
 			path, err = config.ConfigPath()
 			if err != nil {
@@ -43,7 +43,7 @@ var configPathCmd = &cobra.Command{
 		}
 
 		fmt.Println(path)
-		printConfigSourceDetails(cmd, loadResult.Source)
+		printConfigSourceDetails(cmd, source)
 		return nil
 	},
 }
