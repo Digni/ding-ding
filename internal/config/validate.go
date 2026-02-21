@@ -36,7 +36,7 @@ func Validate(cfg Config) error {
 }
 
 func validateLogging(logging LoggingConfig) error {
-	switch strings.ToLower(logging.Level) {
+	switch strings.ToLower(strings.TrimSpace(logging.Level)) {
 	case "error", "warn", "info", "debug":
 		// valid
 	default:

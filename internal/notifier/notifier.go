@@ -26,6 +26,7 @@ var ProcessInFocusedTerminalFunc = focus.ProcessInFocusedTerminal
 var TerminalFocusStateFunc = focus.TerminalFocusState
 var ProcessFocusStateFunc = focus.ProcessFocusState
 var SystemNotifyFunc = systemNotify
+var DefaultLoggerFunc = slog.Default
 
 // Message represents a notification to be sent.
 type Message struct {
@@ -50,10 +51,10 @@ type NotifyOptions struct {
 // threshold. If idle detection fails, FallbackPolicy governs the result:
 // "idle" treats the user as idle; anything else (including "active") treats
 // the user as active. Returns (userIdle, idleTime).
-func resolveIdleState(cfg config.Config) (userIdle bool, idleTime time.Duration) {
+func resolveIdleState(cfg config.Config, logger *slog.Logger) (userIdle bool, idleTime time.Duration) {
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
 	if threshold == 0 {
-		slog.Warn("notifier.idle.threshold_zero")
+		logger.Warn("notifier.idle.threshold_zero")
 		return false, 0
 	}
 
@@ -61,15 +62,15 @@ func resolveIdleState(cfg config.Config) (userIdle bool, idleTime time.Duration)
 	if err != nil {
 		switch cfg.Idle.FallbackPolicy {
 		case "idle":
-			slog.Warn("notifier.idle.detect_failed", "fallback_policy", "idle", "error", err)
+			logger.Warn("notifier.idle.detect_failed", "fallback_policy", "idle", "error", err)
 			return true, 0
 		default:
-			slog.Warn("notifier.idle.detect_failed", "fallback_policy", "active", "error", err)
+			logger.Warn("notifier.idle.detect_failed", "fallback_policy", "active", "error", err)
 			return false, 0
 		}
 	}
 
-	return dur > threshold, dur
+	return dur >= threshold, dur
 }
 
 // Notify handles CLI invocations with 3-tier logic:
@@ -85,14 +86,15 @@ func Notify(cfg config.Config, msg Message) error {
 func NotifyWithOptions(cfg config.Config, msg Message, opts NotifyOptions) error {
 	start := time.Now()
 	operationID := logging.NewOperationID()
-	logger := slog.With("operation_id", operationID, "entrypoint", "cli", "agent", msg.Agent)
+	logger := DefaultLoggerFunc().With("operation_id", operationID, "entrypoint", "cli", "agent", msg.Agent)
 
+	msg.OperationID = operationID
 	if msg.Title == "" {
 		msg.Title = "ding ding!"
 	}
 	logger.Info("notifier.notify.started", messageMetadata(msg)...)
 
-	userIdle, idleTime := resolveIdleState(cfg)
+	userIdle, idleTime := resolveIdleState(cfg, logger)
 	focused := false
 	if cfg.Notification.SuppressWhenFocused {
 		focusState := TerminalFocusStateFunc()
@@ -122,7 +124,7 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 	if operationID == "" {
 		operationID = logging.NewOperationID()
 	}
-	logger := slog.With("operation_id", operationID, "request_id", requestID, "entrypoint", "http", "agent", msg.Agent, "request_pid", msg.PID)
+	logger := DefaultLoggerFunc().With("operation_id", operationID, "request_id", requestID, "entrypoint", "http", "agent", msg.Agent, "request_pid", msg.PID)
 
 	msg.RequestID = requestID
 	msg.OperationID = operationID
@@ -132,7 +134,7 @@ func NotifyRemote(cfg config.Config, msg Message) error {
 	}
 	logger.Info("notifier.notify.started", messageMetadata(msg)...)
 
-	userIdle, idleTime := resolveIdleState(cfg)
+	userIdle, idleTime := resolveIdleState(cfg, logger)
 
 	// If the caller sent a PID, we can check focus for their terminal
 	focused := false
