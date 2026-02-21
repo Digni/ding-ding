@@ -193,9 +193,7 @@ my-agent run --task "refactor" && ding-ding notify -a my-agent -m "Refactor comp
 
 ## Configuration
 
-For config precedence and fallback behavior (including macOS preferred vs legacy path rules), see the authoritative [Config Resolution](docs/config-resolution.md) reference.
-
-For migration background on deterministic config resolution, see [Phase 02 release notes](docs/releases/phase-02-deterministic-config-resolution.md).
+Config lives at `~/.config/ding-ding/config.yaml`. All fields are optional — sensible defaults are built in.
 
 ```bash
 # Create default config
