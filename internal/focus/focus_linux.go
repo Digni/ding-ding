@@ -10,15 +10,15 @@ import (
 	"strings"
 )
 
-func processInFocusedTerminal(pid int) bool {
+func processInFocusedTerminalState(pid int) (bool, bool) {
 	focusedPID, ok := focusedWindowPID()
 	if !ok {
-		return false
+		return false, false
 	}
 
 	// Check if the focused window's PID is an ancestor of the given process.
 	// Chain: terminal → shell → agent → ding-ding (or agent → curl for server)
-	return isAncestor(focusedPID, pid)
+	return isAncestor(focusedPID, pid), true
 }
 
 func focusedWindowPID() (int, bool) {

@@ -6,10 +6,22 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Digni/ding-ding/internal/config"
+	"github.com/Digni/ding-ding/internal/logging"
 	"github.com/Digni/ding-ding/internal/notifier"
 	"github.com/spf13/cobra"
 )
+
+type notifyDeliveryError struct {
+	err error
+}
+
+func (e *notifyDeliveryError) Error() string {
+	return e.err.Error()
+}
+
+func (e *notifyDeliveryError) Unwrap() error {
+	return e.err
+}
 
 var (
 	notifyTitle   string
@@ -18,6 +30,9 @@ var (
 	forcePush     bool
 	testLocal     bool
 )
+
+var notifyWithOptions = notifier.NotifyWithOptions
+var notifyLoadConfig = loadConfigForCommand
 
 var notifyCmd = &cobra.Command{
 	Use:   "notify [message]",
@@ -40,10 +55,13 @@ when focus suppression would normally silence it.`,
 			return fmt.Errorf("invalid flag -test-local; use --test-local")
 		}
 
-		cfg, err := config.Load()
+		loadResult, err := notifyLoadConfig()
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
+		printConfigSourceDetails(cmd, loadResult.Source)
+		cfg := loadResult.Config
+		initializeCommandLogging(cmd.ErrOrStderr(), cfg.Logging, logging.RoleCLI)
 
 		msg := notifier.Message{
 			Title: notifyTitle,
@@ -71,10 +89,15 @@ when focus suppression would normally silence it.`,
 			msg.Body = "Agent task completed"
 		}
 
-		return notifier.NotifyWithOptions(cfg, msg, notifier.NotifyOptions{
+		err = notifyWithOptions(cfg, msg, notifier.NotifyOptions{
 			ForcePush:  forcePush,
 			ForceLocal: testLocal,
 		})
+		if err != nil {
+			return &notifyDeliveryError{err: err}
+		}
+
+		return nil
 	},
 }
 

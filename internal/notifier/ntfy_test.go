@@ -184,4 +184,3 @@ func TestSendNtfy_NoOptionalHeaders(t *testing.T) {
 		t.Errorf("expected Tags header to be absent, got %q", gotTags)
 	}
 }
-

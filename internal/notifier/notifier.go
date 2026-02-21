@@ -3,14 +3,16 @@ package notifier
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Digni/ding-ding/internal/config"
 	"github.com/Digni/ding-ding/internal/focus"
 	"github.com/Digni/ding-ding/internal/idle"
+	"github.com/Digni/ding-ding/internal/logging"
 )
 
 var httpClient = &http.Client{Timeout: 15 * time.Second}
@@ -21,14 +23,18 @@ var errForcePushNoBackends = errors.New("force push requested but no push backen
 var IdleDurationFunc = idle.Duration
 var TerminalFocusedFunc = focus.TerminalFocused
 var ProcessInFocusedTerminalFunc = focus.ProcessInFocusedTerminal
+var TerminalFocusStateFunc = focus.TerminalFocusState
+var ProcessFocusStateFunc = focus.ProcessFocusState
 var SystemNotifyFunc = systemNotify
 
 // Message represents a notification to be sent.
 type Message struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
-	Agent string `json:"agent,omitempty"` // e.g. "claude", "opencode"
-	PID   int    `json:"pid,omitempty"`   // caller's PID for focus detection in server mode
+	Title       string `json:"title"`
+	Body        string `json:"body"`
+	Agent       string `json:"agent,omitempty"`        // e.g. "claude", "opencode"
+	PID         int    `json:"pid,omitempty"`          // caller's PID for focus detection in server mode
+	RequestID   string `json:"request_id,omitempty"`   // server correlation id for request-scoped tracing
+	OperationID string `json:"operation_id,omitempty"` // lifecycle correlation id shared across components
 }
 
 // NotifyOptions controls forced notification behavior.
@@ -47,7 +53,7 @@ type NotifyOptions struct {
 func resolveIdleState(cfg config.Config) (userIdle bool, idleTime time.Duration) {
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
 	if threshold == 0 {
-		log.Printf("warning: idle.threshold_seconds is 0, push notifications will never trigger based on idle state")
+		slog.Warn("notifier.idle.threshold_zero")
 		return false, 0
 	}
 
@@ -55,15 +61,15 @@ func resolveIdleState(cfg config.Config) (userIdle bool, idleTime time.Duration)
 	if err != nil {
 		switch cfg.Idle.FallbackPolicy {
 		case "idle":
-			log.Printf("idle detection failed (%v), fallback_policy=idle — treating as idle", err)
+			slog.Warn("notifier.idle.detect_failed", "fallback_policy", "idle", "error", err)
 			return true, 0
 		default:
-			log.Printf("idle detection failed (%v), fallback_policy=active — treating as active", err)
+			slog.Warn("notifier.idle.detect_failed", "fallback_policy", "active", "error", err)
 			return false, 0
 		}
 	}
 
-	return dur >= threshold, dur
+	return dur > threshold, dur
 }
 
 // Notify handles CLI invocations with 3-tier logic:
@@ -77,16 +83,32 @@ func Notify(cfg config.Config, msg Message) error {
 
 // NotifyWithOptions handles CLI invocations with optional force behavior.
 func NotifyWithOptions(cfg config.Config, msg Message, opts NotifyOptions) error {
+	start := time.Now()
+	operationID := logging.NewOperationID()
+	logger := slog.With("operation_id", operationID, "entrypoint", "cli", "agent", msg.Agent)
+
 	if msg.Title == "" {
 		msg.Title = "ding ding!"
 	}
+	logger.Info("notifier.notify.started", messageMetadata(msg)...)
 
 	userIdle, idleTime := resolveIdleState(cfg)
-	focused := cfg.Notification.SuppressWhenFocused && TerminalFocusedFunc()
+	focused := false
+	if cfg.Notification.SuppressWhenFocused {
+		focusState := TerminalFocusStateFunc()
+		focused = focusState.Focused || !focusState.Known
+	}
+	logger.Info("notifier.notify.routing", "user_idle", userIdle, "idle_ms", idleTime.Milliseconds(), "focused", focused, "force_push", opts.ForcePush, "force_local", opts.ForceLocal, "suppress_when_focused", cfg.Notification.SuppressWhenFocused)
 
-	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, opts, func() {
-		log.Printf("terminal focused, user active (idle %s) — suppressing notification", idleTime)
-	})
+	err := dispatchNotification(cfg, msg, userIdle, idleTime, focused, opts, logger)
+	status := "ok"
+	if err != nil {
+		status = "error"
+		logger.Error("notifier.notify.error", "status", status, "duration_ms", time.Since(start).Milliseconds(), "error", err)
+	}
+	logger.Info("notifier.notify.completed", "status", status, "duration_ms", time.Since(start).Milliseconds())
+
+	return err
 }
 
 // NotifyRemote handles HTTP server invocations. If the caller provides a PID,
@@ -94,24 +116,44 @@ func NotifyWithOptions(cfg config.Config, msg Message, opts NotifyOptions) error
 // terminal is focused. Without a PID, focus detection is skipped and a
 // system notification is always sent.
 func NotifyRemote(cfg config.Config, msg Message) error {
+	start := time.Now()
+	requestID := logging.EnsureRequestID(msg.RequestID)
+	operationID := strings.TrimSpace(msg.OperationID)
+	if operationID == "" {
+		operationID = logging.NewOperationID()
+	}
+	logger := slog.With("operation_id", operationID, "request_id", requestID, "entrypoint", "http", "agent", msg.Agent, "request_pid", msg.PID)
+
+	msg.RequestID = requestID
+	msg.OperationID = operationID
+
 	if msg.Title == "" {
 		msg.Title = "ding ding!"
 	}
+	logger.Info("notifier.notify.started", messageMetadata(msg)...)
 
 	userIdle, idleTime := resolveIdleState(cfg)
 
 	// If the caller sent a PID, we can check focus for their terminal
 	focused := false
 	if msg.PID > 0 && cfg.Notification.SuppressWhenFocused {
-		focused = ProcessInFocusedTerminalFunc(msg.PID)
+		focusState := ProcessFocusStateFunc(msg.PID)
+		focused = focusState.Focused || !focusState.Known
 	}
+	logger.Info("notifier.notify.routing", "user_idle", userIdle, "idle_ms", idleTime.Milliseconds(), "focused", focused, "force_push", false, "force_local", false, "suppress_when_focused", cfg.Notification.SuppressWhenFocused)
 
-	return dispatchNotification(cfg, msg, userIdle, idleTime, focused, NotifyOptions{}, func() {
-		log.Printf("agent terminal focused (pid %d), user active (idle %s) — suppressing notification", msg.PID, idleTime)
-	})
+	err := dispatchNotification(cfg, msg, userIdle, idleTime, focused, NotifyOptions{}, logger)
+	status := "ok"
+	if err != nil {
+		status = "error"
+		logger.Error("notifier.notify.error", "status", status, "duration_ms", time.Since(start).Milliseconds(), "error", err)
+	}
+	logger.Info("notifier.notify.completed", "status", status, "duration_ms", time.Since(start).Milliseconds())
+
+	return err
 }
 
-func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTime time.Duration, focused bool, opts NotifyOptions, tier1Log func()) error {
+func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTime time.Duration, focused bool, opts NotifyOptions, logger *slog.Logger) error {
 	threshold := time.Duration(cfg.Idle.ThresholdSeconds) * time.Second
 	var localErr error
 	forcePushNoBackends := opts.ForcePush && !hasEnabledPushBackends(cfg)
@@ -119,7 +161,7 @@ func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTim
 	// Tier 1: user is active and looking at the agent terminal — do nothing
 	if !userIdle && focused && !opts.ForceLocal {
 		if !opts.ForcePush {
-			tier1Log()
+			logger.Info("notifier.notify.suppressed", "reason", "focused_active", "idle_ms", idleTime.Milliseconds())
 			return nil
 		}
 
@@ -127,7 +169,7 @@ func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTim
 			return errForcePushNoBackends
 		}
 
-		log.Printf("terminal focused, user active (idle %s) — forcing push notifications", idleTime)
+		logger.Info("notifier.notify.force_push", "reason", "focused_active", "idle_ms", idleTime.Milliseconds())
 		return pushAll(cfg, msg)
 	}
 
@@ -136,7 +178,7 @@ func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTim
 	// Tier 2 & 3: send system notification (user isn't looking at the terminal)
 	if shouldSendLocal {
 		if err := SystemNotifyFunc(msg.Title, msg.Body); err != nil {
-			log.Printf("system notification failed: %v", err)
+			logger.Warn("notifier.notify.system_failed", "error", err)
 			if opts.ForceLocal {
 				localErr = fmt.Errorf("system notification: %w", err)
 			}
@@ -145,7 +187,7 @@ func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTim
 
 	// Tier 2: user is active but on a different window — no push needed unless forced
 	if !userIdle && !opts.ForcePush {
-		log.Printf("user active (idle %s, threshold %s) — skipping push", idleTime, threshold)
+		logger.Info("notifier.notify.push_skipped", "reason", "user_active", "idle_ms", idleTime.Milliseconds(), "threshold_ms", threshold.Milliseconds())
 		return localErr
 	}
 
@@ -157,10 +199,10 @@ func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTim
 	}
 
 	if opts.ForcePush && !userIdle {
-		log.Printf("user active (idle %s, threshold %s) — forcing push notifications", idleTime, threshold)
+		logger.Info("notifier.notify.force_push", "reason", "user_active", "idle_ms", idleTime.Milliseconds(), "threshold_ms", threshold.Milliseconds())
 	} else {
 		// Tier 3: user is idle — send push notifications
-		log.Printf("user idle for %s (threshold %s) — sending push notifications", idleTime, threshold)
+		logger.Info("notifier.notify.push_idle", "idle_ms", idleTime.Milliseconds(), "threshold_ms", threshold.Milliseconds())
 	}
 
 	pushErr := pushAll(cfg, msg)
@@ -172,6 +214,18 @@ func dispatchNotification(cfg config.Config, msg Message, userIdle bool, idleTim
 	}
 
 	return pushErr
+}
+
+func messageMetadata(msg Message) []any {
+	return []any{
+		"title_present", msg.Title != "",
+		"body_present", msg.Body != "",
+		"title_bytes", len(msg.Title),
+		"body_bytes", len(msg.Body),
+		"message_pid", msg.PID,
+		"request_id_present", strings.TrimSpace(msg.RequestID) != "",
+		"operation_id_present", strings.TrimSpace(msg.OperationID) != "",
+	}
 }
 
 func hasEnabledPushBackends(cfg config.Config) bool {

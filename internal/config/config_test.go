@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -56,6 +58,26 @@ func TestDefaultConfig(t *testing.T) {
 	// Sound
 	if cfg.Sound.Enabled != true {
 		t.Errorf("Sound.Enabled: got %v, want true", cfg.Sound.Enabled)
+	}
+
+	// Logging
+	if cfg.Logging.Enabled != false {
+		t.Errorf("Logging.Enabled: got %v, want false", cfg.Logging.Enabled)
+	}
+	if cfg.Logging.Level != "info" {
+		t.Errorf("Logging.Level: got %q, want %q", cfg.Logging.Level, "info")
+	}
+	if cfg.Logging.Dir != "logs" {
+		t.Errorf("Logging.Dir: got %q, want %q", cfg.Logging.Dir, "logs")
+	}
+	if cfg.Logging.MaxSizeMB != 20 {
+		t.Errorf("Logging.MaxSizeMB: got %d, want 20", cfg.Logging.MaxSizeMB)
+	}
+	if cfg.Logging.MaxBackups != 7 {
+		t.Errorf("Logging.MaxBackups: got %d, want 7", cfg.Logging.MaxBackups)
+	}
+	if cfg.Logging.Compress != false {
+		t.Errorf("Logging.Compress: got %v, want false", cfg.Logging.Compress)
 	}
 }
 
@@ -157,6 +179,168 @@ func TestLoadFromBytes_FallbackPolicy(t *testing.T) {
 			}
 			if cfg.Idle.FallbackPolicy != tt.wantPolicy {
 				t.Errorf("FallbackPolicy: got %q, want %q", cfg.Idle.FallbackPolicy, tt.wantPolicy)
+			}
+		})
+	}
+}
+
+func TestLoadWithOptions_PreferredParseErrorDoesNotFallback(t *testing.T) {
+	tempDir := t.TempDir()
+	preferredPath := filepath.Join(tempDir, "preferred.yaml")
+	legacyPath := filepath.Join(tempDir, "legacy.yaml")
+
+	if err := os.WriteFile(preferredPath, []byte(":\tinvalid: yaml: {"), 0o644); err != nil {
+		t.Fatalf("write preferred config: %v", err)
+	}
+
+	legacyYAML := []byte("server:\n  address: 127.0.0.1:9999\n")
+	if err := os.WriteFile(legacyPath, legacyYAML, 0o644); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+
+	_, err := LoadWithOptions(LoadOptions{Resolve: ResolveOptions{
+		GOOS:          "darwin",
+		PreferredPath: preferredPath,
+		LegacyPath:    legacyPath,
+	}})
+	if err == nil {
+		t.Fatal("expected parse error, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse") {
+		t.Fatalf("expected parse error, got %v", err)
+	}
+}
+
+func TestLoadWithOptions_PreferredValidationErrorDoesNotFallback(t *testing.T) {
+	tempDir := t.TempDir()
+	preferredPath := filepath.Join(tempDir, "preferred.yaml")
+	legacyPath := filepath.Join(tempDir, "legacy.yaml")
+
+	preferredYAML := []byte("webhook:\n  enabled: true\n")
+	if err := os.WriteFile(preferredPath, preferredYAML, 0o644); err != nil {
+		t.Fatalf("write preferred config: %v", err)
+	}
+
+	legacyYAML := []byte("webhook:\n  enabled: true\n  url: https://example.test/hook\n")
+	if err := os.WriteFile(legacyPath, legacyYAML, 0o644); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+
+	_, err := LoadWithOptions(LoadOptions{Resolve: ResolveOptions{
+		GOOS:          "darwin",
+		PreferredPath: preferredPath,
+		LegacyPath:    legacyPath,
+	}})
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), "validate") {
+		t.Fatalf("expected validate error, got %v", err)
+	}
+}
+
+func TestLoadWithOptions_ExplicitPathFailureWarnsAndFallsBack(t *testing.T) {
+	tempDir := t.TempDir()
+	preferredPath := filepath.Join(tempDir, "preferred.yaml")
+
+	preferredYAML := []byte("server:\n  address: 127.0.0.1:8444\n")
+	if err := os.WriteFile(preferredPath, preferredYAML, 0o644); err != nil {
+		t.Fatalf("write preferred config: %v", err)
+	}
+
+	warnings := make([]string, 0, 1)
+	result, err := LoadWithOptions(LoadOptions{
+		ExplicitPath: filepath.Join(tempDir, "missing-explicit.yaml"),
+		Warn: func(message string) {
+			warnings = append(warnings, message)
+		},
+		Resolve: ResolveOptions{
+			GOOS:          "darwin",
+			PreferredPath: preferredPath,
+			LegacyPath:    filepath.Join(tempDir, "legacy.yaml"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(warnings) != 1 {
+		t.Fatalf("got %d warnings, want 1", len(warnings))
+	}
+	if !strings.Contains(warnings[0], "missing-explicit.yaml") {
+		t.Fatalf("warning missing explicit path details: %q", warnings[0])
+	}
+
+	if result.Source.Path != preferredPath {
+		t.Fatalf("resolved path = %q, want %q", result.Source.Path, preferredPath)
+	}
+	if result.Config.Server.Address != "127.0.0.1:8444" {
+		t.Fatalf("server.address = %q, want %q", result.Config.Server.Address, "127.0.0.1:8444")
+	}
+}
+
+func TestValidate_AcceptsLoggingLevels(t *testing.T) {
+	tests := []string{"error", "warn", "info", "debug"}
+
+	for _, level := range tests {
+		t.Run(level, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Logging.Level = level
+
+			if err := Validate(cfg); err != nil {
+				t.Fatalf("Validate() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestValidate_RejectsInvalidLoggingLevel(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Logging.Level = "verbose"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "logging.level") {
+		t.Fatalf("error %q does not contain logging.level", err)
+	}
+}
+
+func TestValidate_RejectsNonPositiveLoggingRotationBounds(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{
+			name: "max size mb is zero",
+			cfg: func() Config {
+				cfg := DefaultConfig()
+				cfg.Logging.MaxSizeMB = 0
+				return cfg
+			}(),
+			want: "logging.max_size_mb",
+		},
+		{
+			name: "max backups is negative",
+			cfg: func() Config {
+				cfg := DefaultConfig()
+				cfg.Logging.MaxBackups = -1
+				return cfg
+			}(),
+			want: "logging.max_backups",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Validate(tt.cfg)
+			if err == nil {
+				t.Fatal("Validate() error = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error %q does not contain %q", err, tt.want)
 			}
 		})
 	}

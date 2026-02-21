@@ -193,6 +193,10 @@ my-agent run --task "refactor" && ding-ding notify -a my-agent -m "Refactor comp
 
 ## Configuration
 
+For config precedence and fallback behavior (including macOS preferred vs legacy path rules), see the authoritative [Config Resolution](docs/config-resolution.md) reference.
+
+For migration background on deterministic config resolution, see [Phase 02 release notes](docs/releases/phase-02-deterministic-config-resolution.md).
+
 ```bash
 # Create default config
 ding-ding config init
@@ -236,7 +240,27 @@ notification:
 # HTTP server
 server:
   address: "127.0.0.1:8228"
+
+# Persistent structured logging
+logging:
+  enabled: false
+  level: "info"     # error, warn, info, debug
+  dir: "logs"
+  max_size_mb: 20
+  max_backups: 7
+  compress: false
 ```
+
+## Logging
+
+Enable persistent logs by setting `logging.enabled: true` in your config.
+
+- **Format:** JSON lines with UTC timestamps and correlated lifecycle fields (`request_id`, `operation_id`, `status`, `duration_ms`).
+- **Levels:** `error`, `warn`, `info`, `debug` via `logging.level` (applies on next process start).
+- **Redaction:** Known sensitive keys are masked as `[REDACTED]`; request payloads are logged as metadata only (shape/size/field names), not raw body/query content.
+- **Retention controls:** `logging.max_size_mb` controls rotation threshold, `logging.max_backups` bounds retained files, and `logging.compress` toggles compression of rotated files.
+
+By default, logs are written to role-specific files in `logging.dir` (`cli.log` for CLI runs and `server.log` for HTTP server runs).
 
 ## Notification Flow
 
@@ -265,6 +289,23 @@ Focused  Unfocused    Idle
 | Idle detection | `xprintidle` / DBus | `ioreg` | `GetLastInputInfo` |
 | Focus detection | `xdotool` / `kdotool` | `osascript` | `GetForegroundWindow` |
 | ntfy / Discord / Webhook | ✓ | ✓ | ✓ |
+
+## Maintainer Quality Gate
+
+Before merging, run the canonical quality gate:
+
+```bash
+make quality
+```
+
+The gate is strict and merge-blocking. It runs:
+
+- `go test ./...`
+- `go vet ./...`
+- `gofmt -l .` (check-only; does not auto-format)
+- a static guardrail that blocks `log.Fatal`, `os.Exit`, and `panic(` in `internal/`
+
+Only a final `QUALITY GATE PASS` should be treated as a valid pre-merge signal.
 
 ## License
 
