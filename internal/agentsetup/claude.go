@@ -118,13 +118,13 @@ func removeManagedClaudeHooks(event string, entries []any) ([]any, error) {
 			}
 
 			command, _ := hookMap["command"].(string)
-			if command != "" && isManagedClaudeCommand(command) {
+			if command != "" && isManagedClaudeCommand(event, command) {
 				continue
 			}
 			filteredHooks = append(filteredHooks, hookMap)
 		}
 
-		if len(filteredHooks) == 0 && mapHasOnlyKey(entryMap, "hooks") {
+		if len(filteredHooks) == 0 {
 			continue
 		}
 
@@ -162,19 +162,24 @@ func claudeCommandForEvent(event string, mode Mode) string {
 	}
 }
 
-func isManagedClaudeCommand(command string) bool {
-	if strings.Contains(command, "ding-ding notify -a claude") {
-		return true
+func isManagedClaudeCommand(event string, command string) bool {
+	command = strings.TrimSpace(command)
+	for _, managed := range managedClaudeCommandsForEvent(event) {
+		if command == managed {
+			return true
+		}
 	}
-
-	return strings.Contains(command, "localhost:8228/notify") &&
-		strings.Contains(command, `"agent":"claude"`)
+	return false
 }
 
-func mapHasOnlyKey(value map[string]any, key string) bool {
-	if len(value) != 1 {
-		return false
+func managedClaudeCommandsForEvent(event string) []string {
+	switch event {
+	case claudeEventStop, claudeEventNotification:
+		return []string{
+			claudeCommandForEvent(event, ModeCLI),
+			claudeCommandForEvent(event, ModeServer),
+		}
+	default:
+		return nil
 	}
-	_, ok := value[key]
-	return ok
 }

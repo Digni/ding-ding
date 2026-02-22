@@ -88,11 +88,11 @@ func TestUpsertClaudeSettings_MergesAndDeduplicatesManagedHooks(t *testing.T) {
 	assertContainsCommand(t, stopCommands, "ding-ding notify -a claude -m 'Task finished'")
 	assertContainsCommand(t, notificationCommands, "ding-ding notify -a claude -m 'Needs your attention'")
 
-	if countManagedCommands(stopCommands) != 1 {
-		t.Fatalf("Stop managed hook count = %d, want 1", countManagedCommands(stopCommands))
+	if countManagedCommands(claudeEventStop, stopCommands) != 1 {
+		t.Fatalf("Stop managed hook count = %d, want 1", countManagedCommands(claudeEventStop, stopCommands))
 	}
-	if countManagedCommands(notificationCommands) != 1 {
-		t.Fatalf("Notification managed hook count = %d, want 1", countManagedCommands(notificationCommands))
+	if countManagedCommands(claudeEventNotification, notificationCommands) != 1 {
+		t.Fatalf("Notification managed hook count = %d, want 1", countManagedCommands(claudeEventNotification, notificationCommands))
 	}
 }
 
@@ -122,6 +122,146 @@ func TestUpsertClaudeSettings_ModeSwitchUpdatesCommands(t *testing.T) {
 	assertContainsCommandWith(t, stopCommands, "curl -s localhost:8228/notify")
 	assertContainsCommandWith(t, stopCommands, `"agent":"claude"`)
 	assertContainsCommandWith(t, notificationCommands, "Needs your attention")
+}
+
+func TestUpsertClaudeSettings_PreservesCustomServerHook(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	customCommand := `curl -s localhost:8228/notify -d '{"agent":"claude","body":"custom","pid":'$$'}'`
+	seed := `{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {"type": "command", "command": "curl -s localhost:8228/notify -d '{\"agent\":\"claude\",\"body\":\"custom\",\"pid\":'$$'}'", "async": true}
+        ]
+      }
+    ]
+  }
+}`
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+
+	status, err := upsertClaudeSettings(path, ModeCLI)
+	if err != nil {
+		t.Fatalf("upsertClaudeSettings() error = %v", err)
+	}
+	if status != StatusUpdated {
+		t.Fatalf("status = %q, want %q", status, StatusUpdated)
+	}
+
+	root := readJSONFile(t, path)
+	stopCommands := eventCommands(t, root, claudeEventStop)
+	assertContainsCommand(t, stopCommands, customCommand)
+	assertContainsCommand(t, stopCommands, "ding-ding notify -a claude -m 'Task finished'")
+	if countManagedCommands(claudeEventStop, stopCommands) != 1 {
+		t.Fatalf("managed stop commands = %d, want 1", countManagedCommands(claudeEventStop, stopCommands))
+	}
+}
+
+func TestUpsertClaudeSettings_RemovesEntryWhenManagedHooksLeaveNoHooks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	seed := `{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "foo",
+        "hooks": [
+          {"type": "command", "command": "ding-ding notify -a claude -m 'Task finished'", "async": true}
+        ]
+      }
+    ]
+  }
+}`
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+
+	status, err := upsertClaudeSettings(path, ModeCLI)
+	if err != nil {
+		t.Fatalf("upsertClaudeSettings() error = %v", err)
+	}
+	if status != StatusUpdated {
+		t.Fatalf("status = %q, want %q", status, StatusUpdated)
+	}
+
+	root := readJSONFile(t, path)
+	stopEntries := eventEntries(t, root, claudeEventStop)
+	for _, entry := range stopEntries {
+		if _, hasMatcher := entry["matcher"]; hasMatcher {
+			t.Fatalf("matcher entry should have been removed when no hooks remained: %#v", entry)
+		}
+		hooks, ok := entry["hooks"].([]any)
+		if !ok {
+			t.Fatalf("entry hooks is missing or invalid: %#v", entry)
+		}
+		if len(hooks) == 0 {
+			t.Fatalf("entry has empty hooks array: %#v", entry)
+		}
+	}
+}
+
+func TestUpsertClaudeSettings_PreservesMatcherEntryWithNonManagedHook(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	seed := `{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "foo",
+        "hooks": [
+          {"type": "command", "command": "ding-ding notify -a claude -m 'Task finished'", "async": true},
+          {"type": "command", "command": "echo keep-stop", "async": true}
+        ]
+      }
+    ]
+  }
+}`
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+
+	status, err := upsertClaudeSettings(path, ModeCLI)
+	if err != nil {
+		t.Fatalf("upsertClaudeSettings() error = %v", err)
+	}
+	if status != StatusUpdated {
+		t.Fatalf("status = %q, want %q", status, StatusUpdated)
+	}
+
+	root := readJSONFile(t, path)
+	stopCommands := eventCommands(t, root, claudeEventStop)
+	assertContainsCommand(t, stopCommands, "echo keep-stop")
+	assertContainsCommand(t, stopCommands, "ding-ding notify -a claude -m 'Task finished'")
+	if countManagedCommands(claudeEventStop, stopCommands) != 1 {
+		t.Fatalf("managed stop commands = %d, want 1", countManagedCommands(claudeEventStop, stopCommands))
+	}
+
+	stopEntries := eventEntries(t, root, claudeEventStop)
+	matcherEntryFound := false
+	for _, entry := range stopEntries {
+		if entry["matcher"] != "foo" {
+			continue
+		}
+		matcherEntryFound = true
+		hooks, ok := entry["hooks"].([]any)
+		if !ok {
+			t.Fatalf("matcher entry hooks invalid: %#v", entry)
+		}
+		if len(hooks) != 1 {
+			t.Fatalf("matcher entry hook count = %d, want 1", len(hooks))
+		}
+		hook, ok := hooks[0].(map[string]any)
+		if !ok {
+			t.Fatalf("matcher entry hook has unexpected type: %#v", hooks[0])
+		}
+		command, _ := hook["command"].(string)
+		if command != "echo keep-stop" {
+			t.Fatalf("matcher entry command = %q, want %q", command, "echo keep-stop")
+		}
+	}
+	if !matcherEntryFound {
+		t.Fatal("expected matcher entry to be preserved")
+	}
 }
 
 func TestUpsertClaudeSettings_InvalidJSONFails(t *testing.T) {
@@ -225,10 +365,33 @@ func assertContainsCommandWith(t *testing.T, commands []string, contains string)
 	t.Fatalf("commands %v do not contain substring %q", commands, contains)
 }
 
-func countManagedCommands(commands []string) int {
+func eventEntries(t *testing.T, root map[string]any, event string) []map[string]any {
+	t.Helper()
+
+	hooks, ok := root["hooks"].(map[string]any)
+	if !ok {
+		t.Fatalf("hooks is missing or not an object")
+	}
+	entries, ok := hooks[event].([]any)
+	if !ok {
+		t.Fatalf("hooks.%s is missing or not an array", event)
+	}
+
+	out := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		entryMap, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatalf("hooks.%s contains non-object entry: %#v", event, entry)
+		}
+		out = append(out, entryMap)
+	}
+	return out
+}
+
+func countManagedCommands(event string, commands []string) int {
 	count := 0
 	for _, command := range commands {
-		if isManagedClaudeCommand(command) {
+		if isManagedClaudeCommand(event, command) {
 			count++
 		}
 	}
