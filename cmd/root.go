@@ -29,7 +29,8 @@ It uses attention-aware 3-tier notifications:
 Usage:
   ding-ding notify -m "Task completed"    Send a notification via CLI
   ding-ding serve                         Start HTTP server for agent POSTs
-  ding-ding config init                   Create default config file`,
+  ding-ding config init                   Create default config file
+  ding-ding agent init claude project     Install agent integration hooks`,
 }
 
 func Execute() {
