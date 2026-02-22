@@ -54,6 +54,33 @@ ding-ding notify -p --test-local -m "Test all channels"
 `--push` only affects remote push backends (ntfy/Discord/webhook). It does not
 implicitly force a local/system notification; use `--test-local` for that.
 
+### Agent Setup
+
+```bash
+# Initialize (or upsert) Claude project hooks using CLI mode
+ding-ding agent init claude project
+
+# Initialize (or upsert) OpenCode global plugin using CLI mode
+ding-ding agent init opencode global
+
+# Update Claude global hooks to server mode templates
+ding-ding agent update claude global --mode server
+
+# Update OpenCode project plugin in server mode
+ding-ding agent update opencode project --mode server
+```
+
+Command shape:
+
+```bash
+ding-ding agent init <agent> <scope> [--mode cli|server]
+ding-ding agent update <agent> <scope> [--mode cli|server]
+```
+
+- Supported agents: `claude`, `opencode`
+- Supported scopes: `project`, `global`
+- Default mode: `cli`
+
 ### HTTP Server
 
 ```bash
@@ -77,7 +104,15 @@ curl "localhost:8228/notify?message=done&agent=claude"
 
 #### Claude Code
 
-Add to `.claude/settings.json` (project) or `~/.claude/settings.json` (global):
+Use the setup command (recommended):
+
+```bash
+ding-ding agent init claude project
+# or
+ding-ding agent init claude global
+```
+
+Manual setup if needed. Add to `.claude/settings.json` (project) or `~/.claude/settings.json` (global):
 
 **Option A: CLI with async hook (simplest)**
 ```json
@@ -151,7 +186,15 @@ Start the server separately with `ding-ding serve`.
 
 #### OpenCode
 
-OpenCode uses TypeScript plugins. Save as `.opencode/plugins/ding-ding.ts`:
+Use the setup command (recommended):
+
+```bash
+ding-ding agent init opencode project
+# or
+ding-ding agent init opencode global
+```
+
+Manual setup if needed. OpenCode uses TypeScript plugins. Save as `.opencode/plugins/ding-ding.ts`:
 
 **Option A: CLI**
 ```typescript
