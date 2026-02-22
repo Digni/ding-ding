@@ -3,32 +3,59 @@
 package focus
 
 import (
-	"os/exec"
 	"strconv"
 	"strings"
 )
 
+const frontmostPIDAppleScript = `tell application "System Events" to get unix id of first process whose frontmost is true`
+
+var (
+	frontmostPIDFunc = frontmostPID
+	processEnvFunc   = processEnv
+	processListFunc  = processList
+	tmuxClientPIDsFn = tmuxClientPIDs
+)
+
 func processInFocusedTerminalState(pid int) (bool, bool) {
-	// Get PID of the frontmost application
-	out, err := exec.Command("osascript", "-e",
-		`tell application "System Events" to get unix id of first process whose frontmost is true`,
-	).Output()
+	focusedPID, ok := frontmostPIDFunc()
+	if !ok {
+		return false, false
+	}
+
+	// Fast path: traditional direct ancestry still works for non-multiplexer
+	// shells and remains the first check.
+	if isAncestor(focusedPID, pid) {
+		return true, true
+	}
+
+	env, err := processEnvFunc(pid)
 	if err != nil {
-		return false, false
+		// If we cannot inspect the process environment, keep prior behavior:
+		// active + unfocused is known/unfocused.
+		return false, true
 	}
 
-	focusedPID, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	if err != nil || focusedPID <= 0 {
-		return false, false
+	if sessionName := strings.TrimSpace(env["ZELLIJ_SESSION_NAME"]); sessionName != "" {
+		return zellijFocusState(sessionName, focusedPID)
 	}
 
-	return isAncestor(focusedPID, pid), true
+	if tmuxEnv := strings.TrimSpace(env["TMUX"]); tmuxEnv != "" {
+		return tmuxFocusState(tmuxEnv, focusedPID)
+	}
+
+	return false, true
 }
 
-func parentPID(pid int) (int, error) {
-	out, err := exec.Command("ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
+func frontmostPID() (int, bool) {
+	out, err := osascriptOutputFunc()
 	if err != nil {
-		return 0, err
+		return 0, false
 	}
-	return strconv.Atoi(strings.TrimSpace(string(out)))
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+
+	return pid, true
 }

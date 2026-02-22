@@ -184,6 +184,11 @@ sending any remote notifications (ntfy, Discord, etc). With async, Claude return
 The `$$` sends the shell's PID so the server can check if the agent's terminal is focused.
 Start the server separately with `ding-ding serve`.
 
+On macOS, focus detection includes multiplexer-aware fallback for `zellij` and
+`tmux` sessions. If multiplexer focus cannot be determined reliably, ding-ding
+defaults to suppression (treats focus as uncertain rather than unfocused) to
+avoid noisy false-positive notifications.
+
 #### OpenCode
 
 Use the setup command (recommended):
@@ -327,7 +332,7 @@ Focused  Unfocused    Idle
 |---------|-------|-------|---------|
 | System notifications | `notify-send` | `osascript` | PowerShell toast |
 | Idle detection | `xprintidle` / DBus | `ioreg` | `GetLastInputInfo` |
-| Focus detection | `xdotool` / `kdotool` | `osascript` | `GetForegroundWindow` |
+| Focus detection | `xdotool` / `kdotool` | `osascript` + multiplexer-aware fallback (`zellij`, `tmux`) | `GetForegroundWindow` |
 | ntfy / Discord / Webhook | ✓ | ✓ | ✓ |
 
 ## Maintainer Quality Gate
