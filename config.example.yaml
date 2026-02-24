@@ -42,7 +42,7 @@ sound:
 logging:
   enabled: false
   level: "info"                    # error, warn, info, debug
-  dir: "logs"                      # directory for cli.log/server.log
+  dir: "/path/to/ding-ding/logs"   # optional override; default is OS-specific app log location
   max_size_mb: 20                   # rotate when file exceeds this size
   max_backups: 7                    # number of rotated files to keep
   compress: false                   # gzip rotated files

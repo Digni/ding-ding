@@ -105,6 +105,29 @@ func TestBootstrap_LevelFiltering(t *testing.T) {
 	}
 }
 
+func TestBootstrap_DisabledDoesNotEmitLogs(t *testing.T) {
+	var fallback bytes.Buffer
+
+	cfg := config.LoggingConfig{
+		Enabled:    false,
+		Level:      "debug",
+		Dir:        t.TempDir(),
+		MaxSizeMB:  20,
+		MaxBackups: 7,
+		Compress:   false,
+	}
+
+	logger := bootstrapWithOptions(cfg, RoleCLI, bootstrapOptions{
+		fallbackWriter: &fallback,
+	})
+
+	logger.Info("should be discarded")
+
+	if fallback.Len() != 0 {
+		t.Fatalf("expected no log output when logging is disabled, got %q", fallback.String())
+	}
+}
+
 func TestBootstrap_RetryThenWarnFallback(t *testing.T) {
 	var warning bytes.Buffer
 	var fallback bytes.Buffer

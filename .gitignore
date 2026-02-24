@@ -2,3 +2,4 @@ ding-ding
 dist/
 .planning/
 .idea/
+.cache/

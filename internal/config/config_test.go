@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,8 +68,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Logging.Level != "info" {
 		t.Errorf("Logging.Level: got %q, want %q", cfg.Logging.Level, "info")
 	}
-	if cfg.Logging.Dir != "logs" {
-		t.Errorf("Logging.Dir: got %q, want %q", cfg.Logging.Dir, "logs")
+	if cfg.Logging.Dir != defaultLogDir() {
+		t.Errorf("Logging.Dir: got %q, want %q", cfg.Logging.Dir, defaultLogDir())
 	}
 	if cfg.Logging.MaxSizeMB != 20 {
 		t.Errorf("Logging.MaxSizeMB: got %d, want 20", cfg.Logging.MaxSizeMB)
@@ -179,6 +180,42 @@ func TestLoadFromBytes_FallbackPolicy(t *testing.T) {
 			}
 			if cfg.Idle.FallbackPolicy != tt.wantPolicy {
 				t.Errorf("FallbackPolicy: got %q, want %q", cfg.Idle.FallbackPolicy, tt.wantPolicy)
+			}
+		})
+	}
+}
+
+func TestLoadFromBytes_LegacyLoggingDirRemappedToOSDefault(t *testing.T) {
+	defaultDir := defaultLogDir()
+	tests := []string{"logs", "logs/", "./logs"}
+
+	for _, legacyDir := range tests {
+		t.Run(legacyDir, func(t *testing.T) {
+			cfg, err := LoadFromBytes([]byte(fmt.Sprintf("logging:\n  dir: %q\n", legacyDir)))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.Logging.Dir != defaultDir {
+				t.Fatalf("Logging.Dir = %q, want %q", cfg.Logging.Dir, defaultDir)
+			}
+		})
+	}
+}
+
+func TestLoadFromBytes_CustomLoggingDirPreserved(t *testing.T) {
+	customDirs := []string{
+		"custom-logs",
+		filepath.Join(t.TempDir(), "ding-ding-logs"),
+	}
+
+	for _, customDir := range customDirs {
+		t.Run(customDir, func(t *testing.T) {
+			cfg, err := LoadFromBytes([]byte(fmt.Sprintf("logging:\n  dir: %q\n", customDir)))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.Logging.Dir != customDir {
+				t.Fatalf("Logging.Dir = %q, want %q", cfg.Logging.Dir, customDir)
 			}
 		})
 	}
