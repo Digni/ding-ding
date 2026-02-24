@@ -72,7 +72,7 @@ func bootstrapWithOptions(cfg config.LoggingConfig, role Role, opts bootstrapOpt
 	}
 
 	if !cfg.Enabled {
-		return slog.New(slog.NewJSONHandler(fallbackWriter, handlerOpts))
+		return slog.New(slog.NewJSONHandler(io.Discard, handlerOpts))
 	}
 
 	filePath := filepath.Join(cfg.Dir, roleFilename(role))

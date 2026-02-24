@@ -300,6 +300,7 @@ logging:
 ## Logging
 
 Enable persistent logs by setting `logging.enabled: true` in your config.
+When `logging.enabled: false` (default), structured lifecycle logs are suppressed from the console.
 
 - **Log files:** `cli.log` (CLI runs) and `server.log` (HTTP server) inside the configured `logging.dir` directory (default: `logs/` relative to the working directory).
 - **Format:** JSON lines with UTC timestamps and correlated lifecycle fields (`request_id`, `operation_id`, `status`, `duration_ms`).

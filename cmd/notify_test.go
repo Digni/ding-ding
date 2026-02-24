@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -180,5 +181,49 @@ func TestNotifyRunE_ContinuesWhenLoggingBootstrapFails(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "warning: unable to initialize persistent logging") {
 		t.Fatalf("stderr %q does not contain bootstrap warning", stderr.String())
+	}
+}
+
+func TestNotifyRunE_DisabledLoggingSuppressesStructuredOutput(t *testing.T) {
+	origBootstrap := commandLoggingBootstrap
+	origNotifyWithOptions := notifyWithOptions
+	origNotifyLoadConfig := notifyLoadConfig
+	defer func() {
+		commandLoggingBootstrap = origBootstrap
+		notifyWithOptions = origNotifyWithOptions
+		notifyLoadConfig = origNotifyLoadConfig
+	}()
+
+	notifyTitle = ""
+	notifyMessage = ""
+	notifyAgent = ""
+	forcePush = false
+	testLocal = false
+
+	notifyLoadConfig = func() (config.LoadResult, error) {
+		cfg := config.DefaultConfig()
+		cfg.Logging.Enabled = false
+		return config.LoadResult{Config: cfg}, nil
+	}
+
+	notifyWithOptions = func(_ config.Config, _ notifier.Message, _ notifier.NotifyOptions) error {
+		slog.Default().Info("probe")
+		return nil
+	}
+
+	origArgs := os.Args
+	os.Args = []string{"ding-ding", "notify"}
+	defer func() { os.Args = origArgs }()
+
+	var stderr bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetErr(&stderr)
+
+	if err := notifyCmd.RunE(cmd, []string{"hello"}); err != nil {
+		t.Fatalf("RunE returned error: %v", err)
+	}
+
+	if got := strings.TrimSpace(stderr.String()); got != "" {
+		t.Fatalf("expected no structured log output when logging is disabled, got %q", got)
 	}
 }
