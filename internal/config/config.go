@@ -128,7 +128,7 @@ func DefaultConfig() Config {
 		Logging: LoggingConfig{
 			Enabled:    false,
 			Level:      "info",
-			Dir:        "logs",
+			Dir:        defaultLogDir(),
 			MaxSizeMB:  20,
 			MaxBackups: 7,
 			Compress:   false,
@@ -183,6 +183,8 @@ func LoadFromBytes(data []byte) (Config, error) {
 		log.Printf("warning: unrecognized idle.fallback_policy %q, using \"active\"", cfg.Idle.FallbackPolicy)
 		cfg.Idle.FallbackPolicy = "active"
 	}
+
+	cfg.Logging.Dir = normalizeLoggingDir(cfg.Logging.Dir)
 	return cfg, nil
 }
 

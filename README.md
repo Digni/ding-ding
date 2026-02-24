@@ -291,7 +291,7 @@ server:
 logging:
   enabled: false
   level: "info"     # error, warn, info, debug
-  dir: "logs"
+  dir: "/path/to/ding-ding/logs" # optional override; default is OS-specific app log directory
   max_size_mb: 20
   max_backups: 7
   compress: false
@@ -302,7 +302,11 @@ logging:
 Enable persistent logs by setting `logging.enabled: true` in your config.
 When `logging.enabled: false` (default), structured lifecycle logs are suppressed from the console.
 
-- **Log files:** `cli.log` (CLI runs) and `server.log` (HTTP server) inside the configured `logging.dir` directory (default: `logs/` relative to the working directory).
+- **Log files:** `cli.log` (CLI runs) and `server.log` (HTTP server) inside the configured `logging.dir` directory.
+- **Default directory:** OS-standard app log locations:
+  - macOS: `~/Library/Logs/ding-ding`
+  - Linux: `$XDG_STATE_HOME/ding-ding/logs` (or `~/.local/state/ding-ding/logs` when `XDG_STATE_HOME` is unset)
+  - Windows: `%LOCALAPPDATA%\ding-ding\Logs` (or `<UserCacheDir>\ding-ding\Logs` when `LOCALAPPDATA` is unset)
 - **Format:** JSON lines with UTC timestamps and correlated lifecycle fields (`request_id`, `operation_id`, `status`, `duration_ms`).
 - **Levels:** `error`, `warn`, `info`, `debug` via `logging.level` (applies on next process start).
 - **Redaction:** Known sensitive keys are masked as `[REDACTED]`; request payloads are logged as metadata only (shape/size/field names), not raw body/query content.
